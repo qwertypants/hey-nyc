@@ -19,7 +19,9 @@ describe('dataset states', () => {
     expect(within(loading).getByRole('status')).toHaveTextContent(/loading places/i);
     // Nothing that needs data is reachable yet.
     expect(screen.getByRole('button', { name: /near me/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /filters/i })).toBeDisabled();
+    // The filter rail is the primary control, so it is inert until there is a dataset to
+    // count — a chip showing "0" while the file is still downloading would be a lie.
+    for (const chip of screen.getAllByRole('radio')) expect(chip).toBeDisabled();
     // The map container is in the DOM from the first frame, so the layout does not jump and
     // the loading card covers a real surface instead of appearing after a reflow.
     expect(screen.getByTestId('map-canvas')).toBeInTheDocument();
@@ -35,7 +37,7 @@ describe('dataset states', () => {
       // that need a map become live one render after the loading card goes away.
       expect(screen.getByRole('button', { name: /near me/i })).toBeEnabled();
     });
-    expect(screen.getByRole('button', { name: /filters/i })).toBeEnabled();
+    for (const chip of screen.getAllByRole('radio')) expect(chip).toBeEnabled();
     // MIDTOWN_BOUNDS contains exactly three fixture places.
     expect(screen.getAllByText(/3 places in this area/i).length).toBeGreaterThan(0);
     expect(app.controller().getState().bounds).toEqual(MIDTOWN_BOUNDS);

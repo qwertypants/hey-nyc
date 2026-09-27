@@ -209,10 +209,9 @@ describe('map and list', () => {
     const app = renderApp({});
     await screen.findAllByText(/3 places in this area/i);
 
-    // Queens has one participating place, and it is 8 km east of the Midtown box.
-    await user.click(screen.getByRole('button', { name: /^Filters/ }));
+    // Queens has one participating place, and it is 8 km east of the Midtown box. The rail
+    // is always visible, so this is one tap rather than open-then-select-then-done.
     await user.click(screen.getByRole('radio', { name: /^Queens/ }));
-    await user.click(screen.getByRole('button', { name: /done/i }));
     await user.click(screen.getByRole('radio', { name: /^List/ }));
 
     await waitFor(() => {
@@ -223,7 +222,12 @@ describe('map and list', () => {
     // The dataset is NOT empty, so the offer is to re-frame the map, and to drop the filter.
     expect(screen.getByRole('button', { name: /zoom to all 1 place/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /clear filters/i }));
+    // Scoped to the empty state: the rail carries a "Clear filters" of its own, and two
+    // buttons with one name is why this one is addressed by its region rather than globally.
+    const emptyState = screen.getByRole('heading', { name: /no matching places in this area/i })
+      .closest('.eoy-card');
+    expect(emptyState).not.toBeNull();
+    await user.click(within(emptyState as HTMLElement).getByRole('button', { name: /clear filters/i }));
     expect(app.controller().calls.setFilters).toHaveBeenLastCalledWith({
       type: 'all',
       borough: 'all',
@@ -243,5 +247,36 @@ describe('map and list', () => {
     });
     // The style has not loaded, so the map has genuinely never reported an extent.
     expect(app.controller().getState().bounds).toBeNull();
+  });
+  it('the view toggle is a real radiogroup: one tab stop, and arrow keys move the selection', async () => {
+    const user = userEvent.setup();
+    const app = renderApp({});
+    await screen.findAllByText(/3 places in this area/i);
+
+    const group = screen.getByRole('radiogroup', { name: /map or list view/i });
+    const map = within(group).getByRole('radio', { name: /^Map/ });
+    const list = within(group).getByRole('radio', { name: /^List/ });
+
+    // Roving tabindex: the pair is ONE tab stop, which is what "radiogroup" means. Two tab
+    // stops would make Tab do what the arrow keys are for.
+    expect(map).toHaveAttribute('tabindex', '0');
+    expect(list).toHaveAttribute('tabindex', '-1');
+
+    // Arrow keys move the selection. This is the WAI-ARIA pattern, and it is implemented
+    // here because `role="radio"` on a <button> opts out of native radio behaviour: without
+    // the handler the group announced as a radiogroup and behaved like two loose buttons,
+    // which is worse than either. See ViewToggle in src/components/LocationList.tsx.
+    map.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(list).toBeChecked();
+    expect(list).toHaveFocus();
+    expect(app.controller().getState().view).toBeDefined();
+
+    // And they wrap, so a two-item group is not a dead end in either direction.
+    await user.keyboard('{ArrowRight}');
+    expect(map).toBeChecked();
+    await user.keyboard('{ArrowLeft}');
+    expect(list).toBeChecked();
+    expect(screen.getByTestId('location-list')).not.toHaveAttribute('hidden');
   });
 });

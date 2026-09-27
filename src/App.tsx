@@ -12,8 +12,8 @@
  *                       parallel "openSheet" boolean that could disagree with the map.
  *   `useDataset`       locations, byId, coords, metadata, load error, reload.
  *   `useGeolocation`   the visitor's fix, and only ever after an explicit tap.
- *   this component     viewMode (map|list), filtersOpen, revealed row count, skip-link
- *                       intent. Nothing that the map already holds.
+ *   this component     viewMode (map|list), revealed row count, skip-link intent, the
+ *                       filter-change announcement. Nothing that the map already holds.
  *   the URL            written from (view, filters, selectedId) on a debounce. It is a
  *                       mirror, never a source: nothing reads it back after first load.
  *
@@ -30,7 +30,7 @@
  */
 
 import type { JSX } from 'react';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDataset } from './data/useDataset';
 import type { LoadedDataset } from './data/load';
 import type { GeocodeResult } from './lib/geocode';
@@ -49,13 +49,13 @@ import { DEFAULT_VISIBLE_LIMIT, useVisibleCount, useVisibleLocations } from './h
 import { readInitialUrlState, useUrlStateSync } from './hooks/useUrlState';
 import { SearchBox } from './components/SearchBox';
 import type { SearchBoxProps } from './components/SearchBox';
-import { FiltersButton, FilterPanel } from './components/FilterPanel';
+import { FilterRail } from './components/FilterRail';
 import { LocationList, ViewToggle } from './components/LocationList';
 import { DetailSheet } from './components/DetailSheet';
 import { MapLegend } from './components/MapLegend';
 import { UserLocationMarker } from './components/UserLocationMarker';
 import { DatasetErrorState, DatasetLoadingState, MapErrorState, MapLoadingState } from './components/StateCards';
-import { CloseIcon, NearMeIcon } from './components/icons';
+import { NearMeIcon } from './components/icons';
 
 export type ViewMode = 'map' | 'list';
 
@@ -99,11 +99,9 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
   const [initialUrl] = useState(readInitialUrlState);
 
   const [viewMode, setViewMode] = useState<ViewMode>('map');
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [revealed, setRevealed] = useState(DEFAULT_VISIBLE_LIMIT);
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
 
-  const filtersPanelId = useId();
   const listHeadingRef = useRef<HTMLHeadingElement | null>(null);
   // Set only by the skip link, so switching to the list normally does not steal focus.
   const focusListAfterSwitch = useRef(false);
@@ -246,8 +244,36 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
     [controller],
   );
 
-  const activeFilterCount =
-    (filters.type !== 'all' ? 1 : 0) + (filters.borough !== 'all' ? 1 : 0);
+  /*
+   * ANNOUNCING A FILTER CHANGE (WCAG 4.1.3 Status Messages, and 3.2.2 On Input).
+   *
+   * Picking a chip changes two lists at once — the map's contents and the list's — and
+   * neither is a focus target, so a screen reader user gets no feedback that anything
+   * happened unless something says so. This is that something.
+   *
+   * It is deliberately NOT wired to the map's bounds. Panning the map also changes the
+   * count, and announcing every pan would train a screen-reader user to ignore the region
+   * entirely, which is worse than having none. Only the visitor's own filter choice is
+   * announced, which is exactly the change of context 3.2.2 asks to be described.
+   */
+  const [filterNotice, setFilterNotice] = useState('');
+  const lastFilterKey = useRef('');
+  const filterKey = `${filters.type}|${filters.borough}`;
+
+  useEffect(() => {
+    if (datasetCount === 0) {
+      setFilterNotice('');
+      lastFilterKey.current = filterKey;
+      return;
+    }
+    if (filterKey === lastFilterKey.current) return;
+    lastFilterKey.current = filterKey;
+    setFilterNotice(
+      isFiltered(filters)
+        ? `${formatBoroughCount(datasetCount)} match your filters across New York City.`
+        : `${formatBoroughCount(datasetCount)} across New York City.`,
+    );
+  }, [filterKey, filters, datasetCount]);
 
   const ready = dataset.status === 'ready' && loaded !== null && controller !== null;
   const geoBusy = geo.status === 'locating';
@@ -268,49 +294,51 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
         </button>
 
         <header className="eoy-header">
-          <h1 className="eoy-wordmark">
-            <span className="eoy-wordmark__dot" aria-hidden="true" />
-            Eat Outside NYC
-          </h1>
+          <div className="eoy-header__bar">
+            <h1 className="eoy-wordmark">
+              <span className="eoy-wordmark__mark" aria-hidden="true" />
+              Eat Outside NYC
+            </h1>
 
-          <SearchBox
-            locations={dataset.locations}
-            onPickArea={handlePickArea}
-            onPickRestaurant={handleSelect}
-            {...(geocode === undefined ? {} : { geocode })}
-          />
+            <SearchBox
+              locations={dataset.locations}
+              onPickArea={handlePickArea}
+              onPickRestaurant={handleSelect}
+              {...(geocode === undefined ? {} : { geocode })}
+            />
 
-          <button
-            type="button"
-            className="eoy-button eoy-button--on-dark"
-            onClick={geo.request}
-            disabled={!ready || geoBusy}
-            aria-describedby="eoy-nearme-hint"
-          >
-            <NearMeIcon />
-            <span>{geoBusy ? 'Locating' : 'Near me'}</span>
-          </button>
-          <span className="eoy-visually-hidden" id="eoy-nearme-hint">
-            Asks your browser for your position once. Your position is never stored and never
-            added to the address of this page.
-          </span>
+            <button
+              type="button"
+              className="eoy-pill eoy-pill--on-dark"
+              onClick={geo.request}
+              disabled={!ready || geoBusy}
+              aria-describedby="eoy-nearme-hint"
+            >
+              <NearMeIcon size={16} />
+              <span>{geoBusy ? 'Locating' : 'Near me'}</span>
+            </button>
+            <span className="eoy-visually-hidden" id="eoy-nearme-hint">
+              Asks your browser for your position once. Your position is never stored and never
+              added to the address of this page.
+            </span>
+          </div>
 
-          <FiltersButton
-            open={filtersOpen}
-            disabled={!ready}
-            activeCount={activeFilterCount}
-            onToggle={() => setFiltersOpen((open) => !open)}
-            controls={filtersPanelId}
-          />
-
-          <FilterPanel
-            open={filtersOpen}
+          <FilterRail
             locations={dataset.locations}
             filters={filters}
             onChange={handleFilters}
-            onClose={() => setFiltersOpen(false)}
-            panelId={filtersPanelId}
+            disabled={!ready}
           />
+
+          {/* The only place a filter change is spoken. See the note above. */}
+          <div
+            className="eoy-visually-hidden"
+            role="status"
+            aria-live="polite"
+            data-testid="filter-notice"
+          >
+            {filterNotice}
+          </div>
         </header>
 
         <main className="eoy-stage">
@@ -325,38 +353,45 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
           />
 
           {viewMode === 'map' && ready ? <MapLegend /> : null}
-          {/* Not gated on the view mode: a "permission declined" message must still be
-              there when the visitor reads the list, because reading the list is the
-              fallback the message itself points at. */}
-          {userPosition !== null ? (
-            <p className="eoy-user-chip">
-              <span className="eoy-user-chip__dot" aria-hidden="true" />
-              <span>Using your location</span>
-              <button type="button" className="eoy-button eoy-button--small" onClick={geo.clear}>
-                <CloseIcon size={12} />
-                Turn off
-              </button>
-            </p>
-          ) : null}
-          {geo.message !== null ? (
-            <div className="eoy-notice" role="status">
-              <p className="eoy-notice__text">{geo.message}</p>
-              <button
-                type="button"
-                className="eoy-button eoy-button--small"
-                onClick={geo.clear}
-              >
-                Dismiss
-              </button>
-            </div>
-          ) : null}
+
+          {/*
+            THE MESSAGE STACK. The user-position chip, the basemap-loading chip and the
+            geolocation notice can all be on screen at once, and each needs the other's
+            space. Positioning them with three hand-tuned `top` offsets meant the first
+            layout that put two of them side by side silently overlapped them at 320px, so
+            they stack in normal flow instead and there is nothing to keep in sync.
+            `pointer-events: none` on the column lets a pan or a drag pass through the gaps
+            between messages and reach the map, which a full-width bar would have swallowed.
+          */}
+          <div className="eoy-messages">
+            {ready && mapState.status === 'loading' ? <MapLoadingState /> : null}
+            {ready && mapState.status === 'error' ? <MapErrorState error={mapState.error} /> : null}
+            {userPosition !== null ? (
+              <p className="eoy-user-chip">
+                <span className="eoy-user-chip__dot" aria-hidden="true" />
+                <span>Using your location</span>
+                <button type="button" className="eoy-button--tight" onClick={geo.clear}>
+                  Turn off
+                </button>
+              </p>
+            ) : null}
+            {/* Not gated on the view mode: a "permission declined" message must still be
+                there when the visitor reads the list, because reading the list is the
+                fallback the message itself points at. */}
+            {geo.message !== null ? (
+              <div className="eoy-notice" role="status">
+                <p className="eoy-notice__text">{geo.message}</p>
+                <button type="button" className="eoy-button--tight" onClick={geo.clear}>
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
+          </div>
 
           {dataset.status === 'loading' ? <DatasetLoadingState /> : null}
           {dataset.status === 'error' ? (
             <DatasetErrorState error={dataset.error} onRetry={dataset.reload} />
           ) : null}
-          {ready && mapState.status === 'loading' ? <MapLoadingState /> : null}
-          {ready && mapState.status === 'error' ? <MapErrorState error={mapState.error} /> : null}
 
           {ready ? (
             <LocationList
@@ -378,14 +413,13 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
 
         {ready ? (
           <footer className="eoy-bottom-bar">
-            <p className="eoy-bottom-bar__count">
-              {formatBoroughCount(inViewTotal)} in this area
-            </p>
-            <ViewToggle
-              mode={viewMode}
-              onChange={setViewMode}
-              listCount={inViewTotal}
-            />
+            <div className="eoy-bottom-bar__inner">
+              <p className="eoy-bottom-bar__count">
+                <span className="eoy-bottom-bar__num">{inViewTotal.toLocaleString('en-US')}</span>
+                <span className="eoy-bottom-bar__unit">in this area</span>
+              </p>
+              <ViewToggle mode={viewMode} onChange={setViewMode} listCount={inViewTotal} />
+            </div>
           </footer>
         ) : null}
       </div>

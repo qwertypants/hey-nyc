@@ -109,7 +109,7 @@ export function DetailSheet({
       <div className="eoy-sheet__body">
         <address className="eoy-sheet__address">
           {formatAddressLines(location).map((line) => (
-            <span key={line} style={{ display: 'block' }}>
+            <span key={line} className="eoy-sheet__address-line">
               {line}
             </span>
           ))}

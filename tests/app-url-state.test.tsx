@@ -67,9 +67,7 @@ describe('url state', () => {
     act(() => {
       app.controller().setBounds(app.bounds, { lat: 40.7447, lng: -73.9924, zoom: 14.25 });
     });
-    await user.click(screen.getByRole('button', { name: /^Filters/ }));
     await user.click(screen.getByRole('radio', { name: /^Roadway dining/ }));
-    await user.click(screen.getByRole('button', { name: /done/i }));
     await user.click(screen.getByRole('radio', { name: /^List/ }));
     await user.click(screen.getByRole('button', { name: /KATZ S DELICATESSEN/ }));
 
@@ -119,9 +117,8 @@ describe('url state', () => {
     });
     expect(currentSearch()).toContain('type=roadway');
 
-    await user.click(screen.getByRole('button', { name: /^Filters/ }));
-    await user.click(screen.getByRole('button', { name: /^Clear/ }));
-    await user.click(screen.getByRole('button', { name: /done/i }));
+    // The rail's own "Clear filters", which only exists while something is filtered.
+    await user.click(screen.getByRole('button', { name: /clear filters/i }));
 
     act(() => {
       app.controller().setBounds(app.bounds, DEFAULT_VIEW);

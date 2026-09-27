@@ -26,9 +26,9 @@ export function DatasetLoadingState(): JSX.Element {
         </p>
         {/* Shimmer bars are aria-hidden decoration; the text above is the message. */}
         <div aria-hidden="true">
-          <div className="eoy-skeleton" style={{ width: '85%' }} />
-          <div className="eoy-skeleton" style={{ width: '60%' }} />
-          <div className="eoy-skeleton" style={{ width: '72%' }} />
+          <div className="eoy-skeleton eoy-skeleton--wide" />
+          <div className="eoy-skeleton" />
+          <div className="eoy-skeleton eoy-skeleton--narrow" />
         </div>
       </div>
     </div>
@@ -50,9 +50,7 @@ export function DatasetErrorState({ error, onRetry }: DatasetErrorStateProps): J
           places here", which is not something this app knows. {DATA_ATTRIBUTION_TEXT}
         </p>
         {error === null ? null : (
-          <p className="eoy-card__body" style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-            {error.message}
-          </p>
+          <p className="eoy-card__detail">{error.message}</p>
         )}
         <button type="button" className="eoy-button eoy-button--primary" onClick={onRetry}>
           Try again
@@ -125,12 +123,10 @@ export function ListEmptyState({
       : 'Places do match these filters, they are just not in the part of the map you are looking at.';
 
   return (
-    <div className="eoy-card" style={{ margin: 'var(--eoy-space-3)' }}>
-      <h3 className="eoy-card__title" style={{ fontSize: 'var(--eoy-text-lg)' }}>
-        {title}
-      </h3>
+    <div className="eoy-card eoy-card--inset">
+      <h3 className="eoy-card__title eoy-card__title--small">{title}</h3>
       <p className="eoy-card__body">{body}</p>
-      <div style={{ display: 'flex', gap: 'var(--eoy-space-2)', flexWrap: 'wrap' }}>
+      <div className="eoy-card__actions">
         {datasetCount > 0 ? (
           <button type="button" className="eoy-button eoy-button--primary" onClick={onZoomToAll}>
             Zoom to all {formatBoroughCount(datasetCount)}

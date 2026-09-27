@@ -36,10 +36,9 @@ describe('geolocation', () => {
     await screen.findAllByText(/3 places in this area/i);
     expect(geolocation.callCount()).toBe(0);
 
-    // Neither a filter change, a search, nor a view switch is a reason to ask.
-    await user.click(screen.getByRole('button', { name: /^filters/i }));
+    // Neither a filter change, a search, nor a view switch is a reason to ask. The rail
+    // replaced a popover, so a filter is now a single tap with no disclosure to open first.
     await user.click(screen.getByRole('radio', { name: /^Roadway dining/ }));
-    await user.keyboard('{Escape}');
     await user.click(screen.getByRole('radio', { name: /^list/i }));
     await user.click(screen.getByRole('radio', { name: /^map/i }));
     expect(geolocation.callCount()).toBe(0);

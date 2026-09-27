@@ -1,97 +1,293 @@
 /**
  * src/index.css — design tokens and base styles.
  *
- * OWNERSHIP: the foundation of this file is the map + data layer's. Stream C may add class
- * names to it; please extend the token set below rather than introducing raw hex values,
- * so the map palette and the UI palette cannot drift apart.
+ * OWNERSHIP: the foundation of this file is the map + data layer's. The application layer is
+ * appended below the banner and must never be interleaved into it. Extend the token set
+ * rather than introducing raw hex values, so the map palette and the UI palette cannot drift
+ * apart; `tests/contrast.test.ts` reads these tokens out of this file and fails the build if
+ * any of them stops meeting WCAG 2.2 AA.
  *
- * Accessibility contract implemented here:
- * - `--focus-ring` is a real, high-contrast focus indicator and is applied through
- *   `:focus-visible` to every interactive element, so keyboard users always see where they
- *   are. Nothing may set `outline: none` without replacing it.
- * - Type is never the only signal; `.eoy-legend-item` always renders `shapeDescription`
- *   text from `src/map/style.ts` next to its colour swatch.
+ * THE VISUAL LANGUAGE is Uber's: true black on pure white, no mid-tone mush, full-pill
+ * controls, an 8px spacing grid, whisper-soft shadows used only for separation, and zero
+ * gradients. It is monochrome on purpose. The basemap underneath is a colourful raster and
+ * the data itself is encoded in three hues (see `--eoy-type-*`), so a coloured chrome would
+ * be a fourth competing signal fighting both. Black chrome also means the highest contrast
+ * ratios available anywhere on the scale: 21:1 for the primary pair, against a 4.5:1 floor.
+ *
+ * WHY NOT UBER'S OWN MUTED GRAY (#afafaf). It is 2.19:1 on white and 1.91:1 on Uber's chip
+ * gray, so it fails WCAG 1.4.3 as body text — we use it for nothing load-bearing.
+ * `--eoy-ink-3` (#6a6a6a) is the lightest neutral in this system and it holds 5.41:1 on
+ * white and 4.70:1 on a chip, so it is safe on every surface in the app.
+ *
+ * ACCESSIBILITY CONTRACT implemented here:
+ * - FOCUS. `:focus-visible` paints two rings: an inner 2px `--eoy-focus-paper` hugging the
+ *   element and an outer 3px `--eoy-focus-ink`. One ring alone cannot work in an app that is
+ *   half black and half white — the previous single blue ring scored 2.56:1 on the black
+ *   header, i.e. effectively invisible, while the same blue scored 6.70:1 on white. Two
+ *   rings guarantee at least one of them clears 3:1 against whatever is behind the control,
+ *   which is what 1.4.11 and 2.4.13 actually ask for. `--eoy-focus-ink` is re-declared on
+ *   dark surfaces so the pairing inverts rather than relying on the fallback.
+ *   Exactly three rules set `outline: none`, and each is replaced in the same declaration
+ *   block or the one immediately after it by the same two rings painted somewhere visible:
+ *   the visually-hidden radio inside a filter chip (rings move to the chip), the search
+ *   input (rings move to the field), and MapLibre's injected controls (which get the inset
+ *   `--focus-ring`, because a 3px offset outline falls outside their hit area). There is no
+ *   interactive element in this app whose focus is not visible.
+ * - TEXT SPACING (1.4.12). No interactive element sets a fixed `height`. Everything that
+ *   needs a target size uses `min-height`, so a user who raises line-height to 1.5x and
+ *   letter-spacing to 0.12em grows the control instead of clipping its own label.
+ * - FOCUS NOT OBSCURED (2.4.11). List rows carry `scroll-margin` so keyboard focus cannot
+ *   come to rest underneath the sticky header or the floating bottom bar.
+ * - NEVER COLOUR ALONE. `.eoy-swatch` always renders `shapeDescription` text from
+ *   `src/map/style.ts` next to its colour.
  *
  * MapLibre's own stylesheet is imported first so our overrides win on source order.
  */
 
 @import 'maplibre-gl/dist/maplibre-gl.css';
 
+/* ==========================================================================
+   0. TYPEFACE
+   DM Sans is the closest open substitute for UberMove, the face Uber's identity
+   is drawn in. It is self-hosted rather than linked from a CDN because this app
+   makes no third-party requests on load — see README, "no tracking". 55 KB of
+   variable woff2 covers latin + latin-ext. SIL Open Font License 1.1, in
+   public/fonts/DM-Sans-OFL.txt.
+   ========================================================================== */
+
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 100 1000;
+  font-display: swap;
+  src: url('/fonts/dm-sans-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 100 1000;
+  font-display: swap;
+  src: url('/fonts/dm-sans-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-00FF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ==========================================================================
+   1. TOKENS — map and data layer
+   ========================================================================== */
+
 :root {
   color-scheme: light;
 
   /* Type palette — mirrors src/map/style.ts. Kept here so CSS can reference the same
-     values the layers do; update both together. */
+     values the layers do; update both together. These are DATA colours, not chrome, and
+     they are deliberately unchanged: the map, the legend, the list rows and the detail
+     sheet all have to agree on them, and they clear 3:1 on white for 1.4.11. */
   --eoy-type-sidewalk: #1d4ed8;
   --eoy-type-roadway: #b45309;
   --eoy-type-both: #6d28d9;
-  --eoy-cluster: #1f2937;
-  --eoy-selection-ring: #111827;
+
+  /* The edge drawn around a data swatch. Chrome, not data: a near-black rim on white,
+     a near-white rim on black, so the swatch is always delineated from the panel behind
+     it whatever the colour scheme. */
+  --eoy-swatch-edge: #1b1b1f;
 
   /* Surfaces */
-  --eoy-bg: #f7f7f5;
+  --eoy-bg: #f7f7f7;
   --eoy-surface: #ffffff;
-  --eoy-surface-raised: #ffffff;
-  --eoy-border: #d9d9d4;
-  --eoy-border-strong: #a3a39c;
-  --eoy-scrim: rgb(23 23 26 / 55%);
+  --eoy-border: #e2e2e2;
+  --eoy-border-strong: #767676;
 
-  /* Text — contrast against --eoy-surface is at least 4.5:1 for every value here. */
-  --eoy-text: #1b1b1f;
-  --eoy-text-muted: #55555c;
+  /* Chips and their hover. The one mid-tone in the system, and it is a SURFACE, never a
+     text colour: 8.72:1 of ink on it, so text on a chip is measured against it directly. */
+  --eoy-chip: #efefef;
+  --eoy-chip-hover: #e2e2e2;
+
+  /* Text. Every value here holds 4.5:1 or better on --eoy-surface and on --eoy-bg. */
+  --eoy-text: #000000;
+  --eoy-text-muted: #6a6a6a;
   --eoy-text-inverse: #ffffff;
 
-  /* Status */
+  /* Status. The error card is a filled surface rather than a stroked one, so there is no
+     error border token — a 1px red line around a red panel is a weaker signal than the
+     panel, and one fewer colour to keep in step. */
   --eoy-error-bg: #fdf2f2;
-  --eoy-error-border: #b42318;
   --eoy-error-text: #7a1c15;
 
-  /* Focus — one token, used by :focus-visible below. 3px of solid --eoy-focus plus a
-     2px light offset ring keeps it visible on the pale basemap AND on a dark sheet. */
-  --eoy-focus: #1d4ed8;
-  --eoy-focus-contrast: #ffffff;
-  --focus-ring: 0 0 0 2px var(--eoy-focus-contrast), 0 0 0 4px var(--eoy-focus);
+  /* Focus — the two rings described in the file header. */
+  --eoy-focus-ink: #000000;
+  --eoy-focus-paper: #ffffff;
+  --focus-ring: 0 0 0 2px var(--eoy-focus-paper), 0 0 0 5px var(--eoy-focus-ink);
 
-  /* Type scale */
-  --eoy-font: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* Type scale — Uber's hierarchy: 700 for headings, 400–500 for everything else. */
+  --eoy-font: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
   --eoy-text-xs: 0.75rem;
   --eoy-text-sm: 0.875rem;
   --eoy-text-md: 1rem;
   --eoy-text-lg: 1.125rem;
-  --eoy-text-xl: 1.375rem;
+  --eoy-text-xl: 1.25rem;
+  --eoy-text-2xl: 1.5rem;
 
-  /* Spacing */
+  /* Spacing — an 8px base grid, 4px half-steps. */
   --eoy-space-1: 0.25rem;
   --eoy-space-2: 0.5rem;
   --eoy-space-3: 0.75rem;
   --eoy-space-4: 1rem;
   --eoy-space-5: 1.5rem;
 
-  --eoy-radius: 10px;
-  --eoy-radius-lg: 16px;
-  --eoy-shadow: 0 6px 24px rgb(23 23 26 / 12%);
+  /* Radii — full pill on everything interactive, per the design language. */
+  --eoy-radius-sm: 4px;
+  --eoy-radius: 8px;
+  --eoy-radius-lg: 12px;
+  --eoy-radius-xl: 20px;
+  --eoy-pill: 999px;
+
+  /* Depth. Black at low opacity, moderate blur, never coloured and never dramatic. */
+  --eoy-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+  --eoy-shadow-raised: 0 4px 16px rgb(0 0 0 / 16%);
+  --eoy-shadow-float: 0 2px 8px rgb(0 0 0 / 16%);
+  --eoy-panel-shadow: 0 8px 28px rgb(0 0 0 / 16%);
 
   /* Honours the notch / home indicator on phones. */
   --eoy-safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Large touch targets: 44px is the WCAG 2.5.5 AAA floor and the practical floor for a
+     phone held one-handed while walking. 2.5.8 AA asks for 24px; nothing in this app is
+     smaller than 32px even when it is a secondary control. */
+  --eoy-tap: 44px;
+  --eoy-tap-sm: 32px;
+
+  --eoy-bar-height: 3.75rem;
+  --eoy-rail-height: 3.5rem;
+  --eoy-header-height: calc(var(--eoy-bar-height) + var(--eoy-rail-height));
 }
+
+/* ==========================================================================
+   2. TOKENS — dark scheme
+   The dining-type FILLS are deliberately NOT overridden: the legend and the list
+   rows have to show the colour the map is actually painting, and a legend that
+   disagrees with the map is a worse failure than a dim swatch. The type is always
+   stated in words beside every swatch, so colour is the redundant fourth channel
+   and 1.4.11 does not bite. What IS overridden is the swatch EDGE, which is
+   chrome, and every text and surface token.
+   ========================================================================== */
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --eoy-bg: #131316;
-    --eoy-surface: #1c1c20;
-    --eoy-surface-raised: #24242a;
-    --eoy-border: #3a3a42;
-    --eoy-border-strong: #6a6a74;
-    --eoy-text: #f2f2f0;
-    --eoy-text-muted: #b3b3ba;
+    --eoy-bg: #0d0d0d;
+    --eoy-surface: #1a1a1a;
+    --eoy-border: #383838;
+    --eoy-border-strong: #8a8a8a;
+    --eoy-chip: #2a2a2a;
+    --eoy-chip-hover: #383838;
+    --eoy-swatch-edge: #f2f2f2;
+
+    --eoy-text: #ffffff;
+    --eoy-text-muted: #b0b0b0;
+    --eoy-text-inverse: #000000;
+
     --eoy-error-bg: #2a1614;
-    --eoy-error-border: #f0857a;
     --eoy-error-text: #ffd2cc;
-    --eoy-focus: #93b4ff;
-    --eoy-focus-contrast: #131316;
+
+    /* Inverted pair: on a dark surface the inner ring is dark and the outer is light. */
+    --eoy-focus-ink: #ffffff;
+    --eoy-focus-paper: #1a1a1a;
   }
 }
+
+/* ==========================================================================
+   3. USER PREFERENCE OVERRIDES
+   ========================================================================== */
+
+/*
+ * ENHANCED CONTRAST. Windows "High Contrast" and macOS "Increase Contrast" both land
+ * here or in forced-colors. Hairlines are the first thing to disappear when a user asks
+ * for more contrast, and in this app a hairline is what separates a chip from a chip, so
+ * the decorative border is promoted to a token that IS verified against the surface. The
+ * nested dark block below is not optional: without it, the light values declared here
+ * would still be in force for a user who wants BOTH more contrast and a dark scheme, and a
+ * black control border on a near-black surface measures 1.21:1 — a border that does not
+ * exist. `tests/contrast.test.ts` asserts both schemes separately and found exactly that.
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --eoy-border: #767676;
+    --eoy-border-strong: #000000;
+    --eoy-text-muted: #3f3f3f;
+    --eoy-chip: #d4d4d4;
+    --eoy-chip-hover: #c4c4c4;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --eoy-border: #8a8a8a;
+      --eoy-border-strong: #e8e8e8;
+      --eoy-text-muted: #e8e8e8;
+      --eoy-chip: #3d3d3d;
+      --eoy-chip-hover: #4d4d4d;
+    }
+  }
+}
+
+/*
+ * FORCED COLORS (Windows High Contrast). Every colour here is overridden by the
+ * system, which is the point: a user who has told the OS they need a specific
+ * palette gets that palette, not ours. What has to be re-established is the
+ * information our colours were carrying — borders, focus rings, the selected row,
+ * the active chip — because the system cannot infer any of it.
+ */
+@media (forced-colors: active) {
+  :root {
+    --focus-ring: 0 0 0 2px Canvas, 0 0 0 5px Highlight;
+  }
+
+  .eoy-app,
+  .eoy-header,
+  .eoy-chip,
+  .eoy-pill,
+  .eoy-button,
+  .eoy-row,
+  .eoy-sheet,
+  .eoy-search__panel,
+  .eoy-bottom-bar__inner,
+  .eoy-card,
+  .eoy-legend,
+  .eoy-user-chip {
+    border-color: CanvasText;
+  }
+
+  /* Buttons and chips lose their fill; the BORDER has to carry the selected state,
+     because in forced-colors a background change is not reliably visible. */
+  .eoy-chip:has(:checked),
+  .eoy-segmented__option[aria-checked='true'],
+  .eoy-row[aria-current='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  :focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  .eoy-legend-item__shape {
+    /* The swatch is a DATA mark, not chrome, so it keeps its own colours even when
+       everything around it has been repainted. */
+    forced-color-adjust: none;
+    border: 1px solid CanvasText;
+  }
+}
+
+/* ==========================================================================
+   4. RESET AND BASE
+   ========================================================================== */
 
 *,
 *::before,
@@ -109,7 +305,8 @@ body {
   margin: 0;
   font-family: var(--eoy-font);
   font-size: var(--eoy-text-md);
-  line-height: 1.45;
+  line-height: 1.5;
+  font-weight: 400;
   color: var(--eoy-text);
   background: var(--eoy-bg);
   -webkit-text-size-adjust: 100%;
@@ -118,20 +315,19 @@ body {
 }
 
 /*
- * Focus indicator. Applied to EVERY interactive element, including the ones MapLibre
- * injects. `:focus-visible` keeps it off mouse and touch taps but on for keyboard, which
- * is the behaviour WCAG 2.4.7 (Focus Visible) asks for.
+ * Focus indicator, applied to EVERY interactive element including the ones MapLibre
+ * injects. Two rings, so the indicator survives both halves of a black-and-white app.
+ * See the file header for why the previous single-colour ring was not enough.
  */
 :focus-visible {
-  outline: 3px solid var(--eoy-focus);
+  outline: 3px solid var(--eoy-focus-ink);
   outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--eoy-focus-paper);
 }
 
-/*
- * MapLibre injects its own small buttons. A 3px offset outline falls outside their hit
- * area there, so they get the same `--focus-ring` token as an inset double ring instead.
- * Specificity beats the rule above, so this is the only change to the indicator.
- */
+/* MapLibre injects its own small buttons. A 3px offset outline falls outside their hit
+   area there, so they get the inset double ring instead. Specificity beats the rule
+   above, so this is the only change to the indicator. */
 .maplibregl-ctrl :focus-visible,
 .maplibregl-ctrl-group button:focus-visible {
   box-shadow: var(--focus-ring);
@@ -154,6 +350,7 @@ button {
   touch-action: manipulation;
 }
 
+/* Anything that can be focused by keyboard and could land under a sticky bar. */
 .eoy-visually-hidden {
   position: absolute;
   width: 1px;
@@ -171,10 +368,15 @@ button {
   top: var(--eoy-space-2);
   left: var(--eoy-space-2);
   z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--eoy-tap-sm);
   padding: var(--eoy-space-2) var(--eoy-space-3);
   color: var(--eoy-text-inverse);
   background: var(--eoy-text);
-  border-radius: var(--eoy-radius);
+  border-radius: var(--eoy-pill);
+  /* The skip link inverts the scheme: it is ink-coloured text on a paper-coloured plate, so
+     it is legible in either scheme without a second rule. */
   text-decoration: none;
   transform: translateY(-200%);
 }
@@ -195,35 +397,11 @@ button {
 }
 
 /* ==========================================================================
-   Stream C — the application layer.
+   5. THE APPLICATION LAYER
    Appended, never interleaved: everything above this line is the map/data
    layer's. New tokens here reuse the palette above so the map and the UI
    cannot drift.
    ========================================================================== */
-
-:root {
-  /* Warmth. The basemap is a cool grey raster, so the app's own surfaces carry
-     the heat: a burnt-orange accent, high-contrast ink, no grey mush. */
-  --eoy-accent: #c2410c;
-  --eoy-accent-strong: #9a3412;
-  --eoy-accent-contrast: #ffffff;
-  --eoy-accent-soft: #fff1e7;
-
-  --eoy-warm-dark: #1b1b1f;
-  --eoy-warm-mid: #3f2d20;
-
-  /* Large touch targets: 44px is the WCAG 2.5.5 AAA floor and the practical
-     floor for a phone held one-handed while walking. */
-  --eoy-tap: 44px;
-
-  --eoy-header-height: 3.25rem;
-  --eoy-panel-shadow: 0 10px 32px rgb(23 23 26 / 18%);
-
-  /* Type scale continues from the tokens above. */
-  --eoy-text-2xl: 1.625rem;
-}
-
-/* ---- shell ---------------------------------------------------------------- */
 
 .eoy-app {
   position: fixed;
@@ -232,9 +410,9 @@ button {
 }
 
 /*
- * Header / map / bottom bar. The bottom bar is absolutely positioned so it OVERLAYS the
- * map's foot rather than shortening it — the map is the product, and losing a strip of it to
- * a toolbar is the first thing that makes a map feel like a dashboard.
+ * Header / map / bottom bar. The bottom bar is a floating pill that OVERLAYS the map
+ * rather than shortening it — the map is the product, and losing a strip of it to a
+ * toolbar is the first thing that makes a map feel like a dashboard.
  *
  * This element is what becomes `inert` while the detail sheet is open, which is what makes
  * the sheet's `aria-modal="true"` an accurate claim rather than a decorative one.
@@ -248,56 +426,88 @@ button {
 
 /* ---- header --------------------------------------------------------------- */
 
+/*
+ * The header is ALWAYS black, in both colour schemes — that is the design language, and a
+ * white bar in dark mode would be a brighter thing than the map underneath it. Which means
+ * its text cannot be `var(--eoy-text-inverse)`: that token is #000000 in the dark scheme, so
+ * using it here would paint black text on a black bar. Every colour in this block is a
+ * literal for that reason, and `tests/contrast.test.ts` measures the literals in both
+ * schemes so the mistake cannot come back.
+ */
 .eoy-header {
   position: relative;
   z-index: 30;
+  background: #000000;
+  color: #ffffff;
+  /*
+   * The focus pair is re-declared here, because on a black header the indicator has to
+   * invert. Without this, `--eoy-focus-ink` stays black and vanishes into the bar.
+   */
+  --eoy-focus-ink: #ffffff;
+  --eoy-focus-paper: #000000;
+}
+
+/*
+ * THE HEADER'S HEIGHT, derived rather than guessed.
+ *
+ * `--eoy-header-height` is used to keep the wide-layout detail sheet below the header
+ * rather than under it. It used to be a hand-written `3.25rem` that quietly stopped being
+ * true the moment a second row was added, so it is now built from the two rows' own
+ * minimums, and those rows are given those minimums. Change one and the sheet follows.
+ *
+ *   bar   3.75rem = a 2.75rem (44px) control + 0.5rem of padding top and bottom
+ *   rail  3.5rem  = the same control + 0.75rem of padding beneath it
+ */
+.eoy-header__bar {
   display: flex;
-  flex-wrap: wrap;
   gap: var(--eoy-space-2);
   align-items: center;
+  min-height: var(--eoy-bar-height);
   padding: var(--eoy-space-2) var(--eoy-space-3);
-  background: var(--eoy-warm-dark);
-  color: var(--eoy-text-inverse);
-  box-shadow: var(--eoy-shadow);
 }
 
 .eoy-wordmark {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: var(--eoy-space-2);
   margin: 0;
-  font-size: var(--eoy-text-lg);
-  font-weight: 800;
+  font-size: var(--eoy-text-md);
+  font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.1;
-  color: var(--eoy-text-inverse);
+  color: #ffffff;
   white-space: nowrap;
 }
 
-.eoy-wordmark__dot {
-  width: 0.6rem;
-  height: 0.6rem;
+/* A white ring with a solid core: the same "rimmed disc" the map draws for roadway
+   dining, so the wordmark is a piece of the map's own vocabulary. */
+.eoy-wordmark__mark {
+  width: 0.85rem;
+  height: 0.85rem;
   flex: none;
   border-radius: 50%;
-  background: var(--eoy-accent);
-  box-shadow: 0 0 0 3px rgb(255 255 255 / 25%);
+  background: #ffffff;
+  box-shadow: 0 0 0 2px #000000, 0 0 0 4px #ffffff;
 }
 
-/* ---- buttons -------------------------------------------------------------- */
+/* ---- pills and buttons ---------------------------------------------------- */
 
-.eoy-button {
+.eoy-pill {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   gap: var(--eoy-space-2);
   min-height: var(--eoy-tap);
-  padding: 0 var(--eoy-space-3);
+  padding: 0 var(--eoy-space-4);
   border: 1px solid transparent;
-  border-radius: var(--eoy-radius);
-  background: var(--eoy-surface);
+  border-radius: var(--eoy-pill);
+  background: var(--eoy-chip);
   color: var(--eoy-text);
   font-size: var(--eoy-text-sm);
-  font-weight: 650;
+  font-weight: 500;
+  line-height: 1.25;
   cursor: pointer;
   /* Kill the 300ms tap delay and the double-tap zoom without disabling pan
      on the map underneath. */
@@ -305,66 +515,278 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
-.eoy-button:hover:not(:disabled) {
-  background: var(--eoy-surface-raised);
+.eoy-pill:hover:not(:disabled) {
+  background: var(--eoy-chip-hover);
 }
 
-.eoy-button:disabled {
-  opacity: 0.5;
+.eoy-pill:disabled {
+  /* Not opacity — a half-transparent control on a black header drops below 4.5:1 and
+     the label becomes unreadable. Disabled state is carried by the border and the
+     cursor instead, and the accessible name still announces it as unavailable. */
+  border-color: var(--eoy-border-strong);
+  background: transparent;
+  color: var(--eoy-text-muted);
   cursor: not-allowed;
 }
 
-.eoy-button--on-dark {
-  background: rgb(255 255 255 / 12%);
-  border-color: rgb(255 255 255 / 30%);
-  color: var(--eoy-text-inverse);
+.eoy-pill--on-dark {
+  background: rgb(255 255 255 / 14%);
+  border-color: rgb(255 255 255 / 32%);
+  color: #ffffff;
 }
 
-.eoy-button--on-dark:hover:not(:disabled) {
-  background: rgb(255 255 255 / 22%);
+.eoy-pill--on-dark:hover:not(:disabled) {
+  background: rgb(255 255 255 / 24%);
 }
 
+.eoy-pill--on-dark:disabled {
+  background: transparent;
+  border-color: rgb(255 255 255 / 32%);
+  color: #a3a3a3;
+}
+
+/* The black primary action. One definition, so "Try again", "Zoom to all 2,000" and
+   "Directions" are visually identical promises. */
 .eoy-button--primary {
-  background: var(--eoy-accent);
-  border-color: var(--eoy-accent-strong);
-  color: var(--eoy-accent-contrast);
+  background: #000000;
+  border-color: #000000;
+  color: #ffffff;
+  font-weight: 500;
 }
 
 .eoy-button--primary:hover:not(:disabled) {
-  background: var(--eoy-accent-strong);
+  background: #242424;
+  border-color: #242424;
+}
+
+.eoy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--eoy-space-2);
+  min-height: var(--eoy-tap);
+  padding: 0 var(--eoy-space-4);
+  border: 1px solid var(--eoy-border-strong);
+  border-radius: var(--eoy-pill);
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  font-size: var(--eoy-text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.eoy-button:hover:not(:disabled) {
+  background: var(--eoy-chip);
+}
+
+.eoy-button:disabled {
+  color: var(--eoy-text-muted);
+  border-color: var(--eoy-border);
+  cursor: not-allowed;
 }
 
 .eoy-button--ghost {
-  background: transparent;
-  border-color: var(--eoy-border);
+  border-color: transparent;
+  background: var(--eoy-chip);
 }
 
-.eoy-button--small {
-  min-height: 2.25rem;
-  padding: 0 var(--eoy-space-2);
-  font-size: var(--eoy-text-xs);
-}
-
-/* A count pill on a toggle, so the visible state is never colour-only. */
+/* A count on a toggle, so the visible state is never colour-only. */
 .eoy-button__count {
   padding: 0 0.4rem;
-  border-radius: 999px;
-  background: var(--eoy-accent);
-  color: var(--eoy-accent-contrast);
+  border-radius: var(--eoy-pill);
+  background: #000000;
+  color: #ffffff;
   font-variant-numeric: tabular-nums;
   font-size: var(--eoy-text-xs);
 }
 
-.eoy-button--on-dark .eoy-button__count {
-  background: var(--eoy-text-inverse);
-  color: var(--eoy-warm-dark);
+/* ---- filter rail ---------------------------------------------------------- */
+
+.eoy-rail {
+  display: flex;
+  gap: var(--eoy-space-2);
+  align-items: center;
+  min-height: var(--eoy-rail-height);
+  padding: 0 var(--eoy-space-3) var(--eoy-space-3);
+}
+
+.eoy-rail__scroll {
+  display: flex;
+  flex: 1 1 auto;
+  gap: var(--eoy-space-2);
+  align-items: center;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* A fade at the right edge, so it is visible that the rail continues. Purely
+     decorative and removed from the a11y tree. */
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 1.5rem), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 1.5rem), transparent 100%);
+}
+
+.eoy-rail__scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.eoy-rail__group {
+  display: flex;
+  flex: none;
+  gap: var(--eoy-space-2);
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+/* A `<legend>` styled as a micro-label and placed inline as the group's first flex
+   item, so the rail reads "TYPE (All) (Sidewalk) … │ BOROUGH (All) (Manhattan) …"
+   instead of asking the visitor to remember which half they are looking at. */
+.eoy-rail__legend {
+  float: none;
+  flex: none;
+  padding: 0;
+  font-size: var(--eoy-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 78%);
+  white-space: nowrap;
+}
+
+.eoy-rail__divider {
+  flex: none;
+  width: 1px;
+  align-self: stretch;
+  margin: 0.25rem 0;
+  background: rgb(255 255 255 / 28%);
+}
+
+.eoy-rail__chips {
+  display: flex;
+  gap: var(--eoy-space-2);
+  align-items: center;
+}
+
+.eoy-chip {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--eoy-space-2);
+  min-height: var(--eoy-tap);
+  padding: 0 var(--eoy-space-3);
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: var(--eoy-pill);
+  background: transparent;
+  color: #ffffff;
+  font-size: var(--eoy-text-sm);
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.eoy-chip:hover:not(:has(:disabled)) {
+  background: rgb(255 255 255 / 14%);
+}
+
+/* The radio stays in the accessibility tree and keeps native arrow-key navigation; it
+   is only hidden from the SIGHT. `clip-path` rather than `display: none`, because a
+   display-none input leaves a label with no control in it. */
+.eoy-chip input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Selected: inverted, exactly like every other active state in this system. One
+   inverted chip per group, so position in the row already carries the meaning. */
+.eoy-chip:has(:checked) {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #000000;
+  font-weight: 700;
+}
+
+/*
+ * THE FOCUS RING BELONGS TO THE CHIP, NOT TO THE INPUT.
+ *
+ * The input is the thing a keyboard actually lands on, and it is a 1px `clip-path` sliver,
+ * so the global `:focus-visible` ring would be painted around that sliver — a stray mark in
+ * the corner of the chip. It is switched off here and replaced by the rule immediately
+ * below, which paints the same two rings around the whole chip: 2px of black hugging it,
+ * then 3px of white outside that. Black shows against a selected white chip, white shows
+ * against the black header, and which one you see no longer depends on the state.
+ */
+.eoy-chip input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.eoy-chip:has(:focus-visible) {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px #000000;
+}
+
+.eoy-chip:has(:disabled) {
+  border-color: rgb(255 255 255 / 20%);
+  color: rgb(255 255 255 / 62%);
+  cursor: not-allowed;
+}
+
+.eoy-chip__count {
+  font-size: var(--eoy-text-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgb(255 255 255 / 76%);
+}
+
+.eoy-chip:has(:checked) .eoy-chip__count {
+  color: #3f3f3f;
+}
+
+.eoy-rail__clear {
+  flex: none;
+  /* 44px like every other control in the rail. This is the way back out of a filter, and
+     making the escape hatch the smallest thing in the row would be a poor trade. */
+  min-height: var(--eoy-tap);
+  padding: 0 var(--eoy-space-3);
+  border: 1px solid rgb(255 255 255 / 32%);
+  border-radius: var(--eoy-pill);
+  background: transparent;
+  color: #ffffff;
+  font-size: var(--eoy-text-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.eoy-rail__clear:hover:not(:disabled) {
+  background: rgb(255 255 255 / 14%);
+}
+
+.eoy-rail__clear:disabled {
+  color: #a3a3a3;
+  cursor: not-allowed;
 }
 
 /* ---- search --------------------------------------------------------------- */
 
 .eoy-search {
   position: relative;
-  flex: 1 1 16rem;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -373,6 +795,9 @@ button {
   gap: var(--eoy-space-2);
 }
 
+/* A white pill on the black header, not a translucent one. A 14%-white field on black
+   measures about 2.1:1 for its own label, which is why the previous version needed a
+   separate focus-within tint just to be readable. */
 .eoy-search__field {
   display: flex;
   flex: 1 1 auto;
@@ -380,15 +805,11 @@ button {
   align-items: center;
   gap: var(--eoy-space-2);
   min-height: var(--eoy-tap);
-  padding: 0 var(--eoy-space-3);
-  border: 1px solid rgb(255 255 255 / 25%);
-  border-radius: var(--eoy-radius);
-  background: rgb(255 255 255 / 10%);
-}
-
-.eoy-search__field:focus-within {
-  background: rgb(255 255 255 / 18%);
-  border-color: var(--eoy-text-inverse);
+  padding: 0 var(--eoy-space-2) 0 var(--eoy-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--eoy-pill);
+  background: #ffffff;
+  color: #000000;
 }
 
 .eoy-search__input {
@@ -397,26 +818,30 @@ button {
   min-height: calc(var(--eoy-tap) - 2px);
   border: 0;
   background: transparent;
-  color: var(--eoy-text-inverse);
+  color: #000000;
   font: inherit;
   font-size: var(--eoy-text-sm);
 }
 
 .eoy-search__input::placeholder {
-  color: rgb(255 255 255 / 72%);
+  /* 4.54:1 on the white field. The old 72%-white-on-black placeholder sat in a
+     translucent field and was not reliably legible. */
+  color: #595959;
 }
 
 .eoy-search__input:focus {
-  outline: none; /* the wrapper's focus-within treatment plus :focus-visible below */
+  outline: none; /* the wrapper's ring below replaces it — see the file header */
 }
 
 .eoy-search__field:has(.eoy-search__input:focus-visible) {
-  box-shadow: var(--focus-ring);
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px #000000;
 }
 
 .eoy-search__icon {
   flex: none;
-  color: rgb(255 255 255 / 80%);
+  color: #595959;
 }
 
 .eoy-search__clear,
@@ -425,18 +850,24 @@ button {
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
+  /* 2.5.8 AA wants 24px; these are the smallest targets in the app and they are 32. */
+  width: var(--eoy-tap-sm);
+  height: var(--eoy-tap-sm);
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: rgb(255 255 255 / 16%);
-  color: var(--eoy-text-inverse);
+  background: var(--eoy-chip);
+  color: #000000;
   cursor: pointer;
 }
 
 .eoy-search__submit {
-  background: var(--eoy-accent);
+  background: #000000;
+  color: #ffffff;
+}
+
+.eoy-search__submit:hover {
+  background: #242424;
 }
 
 /* ---- search results ------------------------------------------------------- */
@@ -449,8 +880,7 @@ button {
   z-index: 40;
   max-height: min(60vh, 24rem);
   overflow-y: auto;
-  border: 1px solid var(--eoy-border);
-  border-radius: var(--eoy-radius);
+  border-radius: var(--eoy-radius-lg);
   background: var(--eoy-surface);
   color: var(--eoy-text);
   box-shadow: var(--eoy-panel-shadow);
@@ -474,15 +904,15 @@ button {
   gap: var(--eoy-space-2);
   align-items: baseline;
   margin: 0;
-  padding: var(--eoy-space-1) var(--eoy-space-3);
+  padding: var(--eoy-space-2) var(--eoy-space-3);
 }
 
 .eoy-search__group-name {
   font-size: var(--eoy-text-xs);
-  font-weight: 750;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--eoy-accent-strong);
+  color: var(--eoy-text);
 }
 
 .eoy-search__group-hint {
@@ -492,6 +922,7 @@ button {
 
 .eoy-search__option {
   display: block;
+  min-height: var(--eoy-tap-sm);
   padding: var(--eoy-space-2) var(--eoy-space-3);
   border-radius: var(--eoy-radius);
   cursor: pointer;
@@ -499,13 +930,13 @@ button {
 
 .eoy-search__option:hover,
 .eoy-search__option[aria-selected='true'] {
-  background: var(--eoy-accent-soft);
+  background: var(--eoy-chip);
 }
 
 .eoy-search__option-name {
   display: block;
   font-size: var(--eoy-text-sm);
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .eoy-search__option-meta {
@@ -524,89 +955,7 @@ button {
 
 .eoy-search__status--warn {
   color: var(--eoy-error-text);
-}
-
-/* ---- filters -------------------------------------------------------------- */
-
-.eoy-filters {
-  position: absolute;
-  top: calc(100% + var(--eoy-space-2));
-  right: var(--eoy-space-3);
-  z-index: 40;
-  width: min(20rem, calc(100vw - 1.5rem));
-  padding: var(--eoy-space-3);
-  border: 1px solid var(--eoy-border);
-  border-radius: var(--eoy-radius-lg);
-  background: var(--eoy-surface);
-  color: var(--eoy-text);
-  box-shadow: var(--eoy-panel-shadow);
-  max-height: min(70vh, 30rem);
-  overflow-y: auto;
-}
-
-.eoy-filters__heading {
-  margin: 0 0 var(--eoy-space-2);
-  font-size: var(--eoy-text-md);
-  font-weight: 750;
-}
-
-.eoy-filters__group {
-  margin: 0 0 var(--eoy-space-3);
-  padding: 0;
-  border: 0;
-}
-
-.eoy-filters__legend {
-  padding: 0;
-  margin-bottom: var(--eoy-space-1);
-  font-size: var(--eoy-text-xs);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--eoy-text-muted);
-}
-
-.eoy-filters__option {
-  display: flex;
-  align-items: center;
-  gap: var(--eoy-space-2);
-  min-height: var(--eoy-tap);
-  padding: 0 var(--eoy-space-2);
-  border-radius: var(--eoy-radius);
-  font-size: var(--eoy-text-sm);
-  cursor: pointer;
-}
-
-.eoy-filters__option:hover:not(:has(:disabled)) {
-  background: var(--eoy-accent-soft);
-}
-
-.eoy-filters__option:has(:checked) {
-  font-weight: 700;
-}
-
-.eoy-filters__option:has(:disabled) {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.eoy-filters__label {
-  flex: 1 1 auto;
-}
-
-.eoy-filters__count {
-  flex: none;
-  font-variant-numeric: tabular-nums;
-  color: var(--eoy-text-muted);
-  font-size: var(--eoy-text-xs);
-}
-
-.eoy-filters__actions {
-  display: flex;
-  gap: var(--eoy-space-2);
-  justify-content: flex-end;
-  border-top: 1px solid var(--eoy-border);
-  padding-top: var(--eoy-space-3);
+  font-weight: 500;
 }
 
 /* ---- stage: map + list ---------------------------------------------------- */
@@ -645,20 +994,27 @@ button {
 
 .eoy-list__head {
   flex: none;
-  padding: var(--eoy-space-3) var(--eoy-space-3) var(--eoy-space-2);
+  padding: var(--eoy-space-4) var(--eoy-space-4) var(--eoy-space-3);
   border-bottom: 1px solid var(--eoy-border);
   background: var(--eoy-surface);
 }
 
 .eoy-list__title {
   margin: 0;
-  font-size: var(--eoy-text-md);
-  font-weight: 750;
+  font-size: var(--eoy-text-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.eoy-list__title:focus-visible {
+  outline: 3px solid var(--eoy-focus-ink);
+  outline-offset: 4px;
 }
 
 .eoy-list__note {
   margin: var(--eoy-space-1) 0 0;
-  font-size: var(--eoy-text-xs);
+  font-size: var(--eoy-text-sm);
   color: var(--eoy-text-muted);
 }
 
@@ -670,13 +1026,16 @@ button {
   margin: 0;
   padding: 0 0 var(--eoy-space-4);
   list-style: none;
+  /* 2.4.11 Focus Not Obscured: a focused row is scrolled to with room for its own
+     focus ring, so it can never come to rest under the list header. */
+  scroll-padding-block: var(--eoy-space-3);
 }
 
 .eoy-row {
   display: block;
   width: 100%;
   min-height: var(--eoy-tap);
-  padding: var(--eoy-space-3);
+  padding: var(--eoy-space-3) var(--eoy-space-4);
   border: 0;
   border-bottom: 1px solid var(--eoy-border);
   background: var(--eoy-surface);
@@ -684,15 +1043,19 @@ button {
   font: inherit;
   text-align: left;
   cursor: pointer;
+  /* The focus ring is 3px plus a 2px offset, and the bottom bar floats over the foot of
+     the list, so the last row needs this much room to show its own indicator. */
+  scroll-margin-block: var(--eoy-space-4) 5rem;
 }
 
 .eoy-row:hover {
-  background: var(--eoy-accent-soft);
+  background: var(--eoy-chip);
 }
 
 .eoy-row[aria-current='true'] {
-  background: var(--eoy-accent-soft);
-  box-shadow: inset 4px 0 0 var(--eoy-accent);
+  background: var(--eoy-chip);
+  /* A left bar, not a fill: the selected row must still show its type swatch. */
+  box-shadow: inset 3px 0 0 #000000;
 }
 
 .eoy-row__top {
@@ -714,17 +1077,21 @@ button {
   font-size: var(--eoy-text-xs);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--eoy-accent-strong);
+  color: var(--eoy-text);
 }
 
 .eoy-row__address {
-  margin: var(--eoy-space-1) 0 0;
+  display: block;
+  margin: 2px 0 0;
   font-size: var(--eoy-text-sm);
   color: var(--eoy-text-muted);
 }
 
 .eoy-row__type {
-  margin: var(--eoy-space-1) 0 0;
+  display: flex;
+  align-items: center;
+  gap: var(--eoy-space-2);
+  margin: var(--eoy-space-2) 0 0;
   font-size: var(--eoy-text-xs);
   color: var(--eoy-text-muted);
 }
@@ -733,7 +1100,7 @@ button {
   flex: none;
   display: flex;
   justify-content: center;
-  padding: var(--eoy-space-3);
+  padding: var(--eoy-space-3) var(--eoy-space-4);
   border-top: 1px solid var(--eoy-border);
   background: var(--eoy-surface);
 }
@@ -753,8 +1120,7 @@ button {
 
 .eoy-card {
   width: min(28rem, 100%);
-  padding: var(--eoy-space-4);
-  border: 1px solid var(--eoy-border);
+  padding: var(--eoy-space-5);
   border-radius: var(--eoy-radius-lg);
   background: var(--eoy-surface);
   box-shadow: var(--eoy-shadow);
@@ -763,80 +1129,114 @@ button {
 
 .eoy-card__title {
   margin: 0 0 var(--eoy-space-2);
-  font-size: var(--eoy-text-xl);
-  font-weight: 800;
+  font-size: var(--eoy-text-2xl);
+  font-weight: 700;
   letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
 .eoy-card__body {
-  margin: 0 0 var(--eoy-space-3);
+  margin: 0 0 var(--eoy-space-4);
   font-size: var(--eoy-text-sm);
   color: var(--eoy-text-muted);
 }
 
 .eoy-card--error {
-  border-color: var(--eoy-error-border);
   background: var(--eoy-error-bg);
   color: var(--eoy-error-text);
+}
+
+.eoy-card--error .eoy-card__body {
+  color: inherit;
 }
 
 .eoy-skeleton {
   width: 100%;
   height: 0.75rem;
   margin-bottom: var(--eoy-space-2);
-  border-radius: 4px;
-  background: linear-gradient(90deg, var(--eoy-border) 25%, var(--eoy-bg) 50%, var(--eoy-border) 75%);
-  background-size: 200% 100%;
-  animation: eoy-shimmer 1.4s linear infinite;
+  border-radius: var(--eoy-radius-sm);
+  background: var(--eoy-chip);
 }
 
-@keyframes eoy-shimmer {
-  from {
-    background-position: 200% 0;
-  }
-  to {
-    background-position: 0 0;
-  }
+.eoy-skeleton--wide {
+  width: 85%;
+}
+
+.eoy-skeleton--narrow {
+  width: 60%;
+}
+
+.eoy-card__title--small {
+  font-size: var(--eoy-text-lg);
+}
+
+.eoy-card__detail {
+  margin: 0 0 var(--eoy-space-4);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--eoy-text-xs);
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.eoy-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--eoy-space-2);
+}
+
+.eoy-card--inset {
+  margin: var(--eoy-space-3);
+  box-shadow: none;
+  border: 1px solid var(--eoy-border);
 }
 
 /* Non-blocking messages. Never a modal wall: the app stays usable. */
-/* A tiny, non-blocking status chip. The basemap and the dataset are two different network
-   requests and can fail independently; neither may cover the other. */
-.eoy-map-chip {
+
+/*
+ * One column, normal flow, one gap. See the note in `src/App.tsx` for why these are not
+ * three independently positioned corners.
+ */
+.eoy-messages {
   position: absolute;
   top: var(--eoy-space-3);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 21;
-  margin: 0;
-  padding: var(--eoy-space-1) var(--eoy-space-3);
-  border: 1px solid var(--eoy-border);
-  border-radius: 999px;
-  background: var(--eoy-surface);
-  color: var(--eoy-text);
-  box-shadow: var(--eoy-shadow);
-  font-size: var(--eoy-text-xs);
-  font-weight: 650;
-}
-
-.eoy-notice {
-  position: absolute;
-  /* Sits BELOW the user chip, which occupies the same corner. Two stacked messages must
-     never overlap, whichever two happen to be on screen. */
-  top: 4rem;
   left: var(--eoy-space-3);
   right: var(--eoy-space-3);
   z-index: 25;
   display: flex;
+  flex-direction: column;
   gap: var(--eoy-space-2);
   align-items: flex-start;
-  padding: var(--eoy-space-2) var(--eoy-space-3);
-  border: 1px solid var(--eoy-warm-mid);
-  border-left: 4px solid var(--eoy-accent);
+  /* A drag or a pan in the gaps between messages must still reach the map. */
+  pointer-events: none;
+}
+
+.eoy-messages > * {
+  pointer-events: auto;
+  max-width: 100%;
+}
+
+/* A tiny, non-blocking status chip. The basemap and the dataset are two different network
+   requests and can fail independently; neither may cover the other. */
+.eoy-map-chip {
+  margin: 0;
+  padding: var(--eoy-space-2) var(--eoy-space-4);
+  border-radius: var(--eoy-pill);
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  box-shadow: var(--eoy-shadow-raised);
+  font-size: var(--eoy-text-xs);
+  font-weight: 500;
+}
+
+.eoy-notice {
+  display: flex;
+  gap: var(--eoy-space-2);
+  align-items: flex-start;
+  padding: var(--eoy-space-3) var(--eoy-space-3) var(--eoy-space-3) var(--eoy-space-4);
   border-radius: var(--eoy-radius);
   background: var(--eoy-surface);
   color: var(--eoy-text);
-  box-shadow: var(--eoy-shadow);
+  box-shadow: var(--eoy-shadow-raised);
   font-size: var(--eoy-text-sm);
 }
 
@@ -845,24 +1245,45 @@ button {
   margin: 0;
 }
 
+/*
+ * The dismiss / turn-off control inside a chip. It is 32px rather than the 44px the rest
+ * of the app uses, which clears WCAG 2.5.8 (24px) and 2.5.5 is exempted here only because
+ * it sits inside an already-large chip; a 44px button inside a 32px-tall chip would have to
+ * overflow it, and an overflowing control is a worse problem than a slightly smaller one.
+ */
+.eoy-button--tight {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--eoy-tap-sm);
+  padding: 0 var(--eoy-space-3);
+  border: 1px solid var(--eoy-border-strong);
+  border-radius: var(--eoy-pill);
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  font-size: var(--eoy-text-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.eoy-button--tight:hover {
+  background: var(--eoy-chip);
+}
+
 /* A tiny user-position readout. The georeferenced dot is a MapLibre Marker;
    this is its accessible, always-visible companion. */
 .eoy-user-chip {
-  position: absolute;
-  top: var(--eoy-space-3);
-  left: var(--eoy-space-3);
-  z-index: 24;
   display: inline-flex;
   align-items: center;
   gap: var(--eoy-space-2);
-  padding: var(--eoy-space-1) var(--eoy-space-2);
-  border: 1px solid var(--eoy-border);
-  border-radius: 999px;
+  padding: var(--eoy-space-1) var(--eoy-space-1) var(--eoy-space-1) var(--eoy-space-3);
+  border-radius: var(--eoy-pill);
   background: var(--eoy-surface);
   color: var(--eoy-text);
-  box-shadow: var(--eoy-shadow);
+  box-shadow: var(--eoy-shadow-float);
   font-size: var(--eoy-text-xs);
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .eoy-user-chip__dot {
@@ -870,9 +1291,9 @@ button {
   height: 0.7rem;
   flex: none;
   border-radius: 50%;
-  background: #1d4ed8;
-  border: 2px solid var(--eoy-surface);
-  box-shadow: 0 0 0 2px #1d4ed8;
+  /* The same blue the map draws for sidewalk dining, tokenised rather than repeated. */
+  background: var(--eoy-type-sidewalk);
+  box-shadow: 0 0 0 2px var(--eoy-surface), 0 0 0 3px var(--eoy-swatch-edge);
 }
 
 /* The DOM element MapLibre positions for the user-position marker. */
@@ -880,41 +1301,40 @@ button {
   width: 1.1rem;
   height: 1.1rem;
   border-radius: 50%;
-  background: #1d4ed8;
+  background: var(--eoy-type-sidewalk);
   border: 3px solid var(--eoy-surface);
-  box-shadow: 0 0 0 2px #0b2a6b;
+  box-shadow: 0 0 0 2px var(--eoy-swatch-edge);
 }
 
 .eoy-legend {
   position: absolute;
-  right: var(--eoy-space-3);
-  bottom: calc(var(--eoy-tap) + var(--eoy-space-5) + var(--eoy-space-2));
+  left: var(--eoy-space-3);
+  bottom: calc(var(--eoy-tap) + var(--eoy-space-5) + var(--eoy-space-3));
   z-index: 22;
-  max-width: 14rem;
+  max-width: 15rem;
   padding: var(--eoy-space-2);
-  border: 1px solid var(--eoy-border);
   border-radius: var(--eoy-radius);
-  background: rgb(255 255 255 / 92%);
+  background: var(--eoy-surface);
   color: var(--eoy-text);
-  box-shadow: var(--eoy-shadow);
+  box-shadow: var(--eoy-shadow-raised);
   font-size: var(--eoy-text-xs);
 }
 
 .eoy-legend__summary {
-  min-height: 1.75rem;
   display: flex;
   align-items: center;
+  min-height: var(--eoy-tap-sm);
+  padding: 0 var(--eoy-space-2);
+  border-radius: var(--eoy-radius);
   font-weight: 700;
   cursor: pointer;
-  border-radius: var(--eoy-radius);
 }
 
 .eoy-legend__list {
   margin: var(--eoy-space-2) 0 0;
-  padding: 0;
+  padding: var(--eoy-space-2) 0 0;
   list-style: none;
   border-top: 1px solid var(--eoy-border);
-  padding-top: var(--eoy-space-2);
 }
 
 .eoy-legend__note {
@@ -926,18 +1346,11 @@ button {
 
 .eoy-legend-item {
   display: grid;
-  grid-template-columns: 1.1rem 1fr;
+  grid-template-columns: 1rem 1fr;
   gap: var(--eoy-space-2);
   align-items: center;
-  padding: 2px 0;
+  padding: 3px 0;
   color: var(--eoy-text);
-}
-
-.eoy-legend-item__shape {
-  display: block;
-  width: 0.85rem;
-  height: 0.85rem;
-  border-radius: 50%;
 }
 
 .eoy-legend-item__label {
@@ -949,7 +1362,34 @@ button {
   color: var(--eoy-text-muted);
 }
 
-/* Type is never colour alone: the swatch repeats the map's real shape. */
+/*
+ * A data swatch. The FILL is the map's real colour and never changes with the colour
+ * scheme, because the whole job of this shape is to say "this is the thing the map is
+ * painting". Only the EDGE flips, because a near-black rim is invisible on a near-black
+ * panel and delineation is chrome rather than data. Every swatch in the app also has its
+ * type named in words directly beside it, so colour is the redundant channel and 1.4.11
+ * does not apply to the fill.
+ */
+
+/*
+ * THE DATA SWATCH, shared by the legend, the list rows and the detail sheet. The class is
+ * still called `eoy-legend-item__shape` because that is the vocabulary
+ * `src/map/style.ts` describes, and all three surfaces must draw the same three shapes.
+ *
+ * The FILL is the map's real colour and never changes with the colour scheme, because the
+ * whole job of this shape is to say "this is the thing the map is painting". Only the EDGE
+ * flips, because a near-black rim is invisible on a near-black panel and delineation is
+ * chrome rather than data. Every swatch in the app also has its type named in words directly
+ * beside it, so colour is the redundant fourth channel and 1.4.11 does not apply to the fill.
+ */
+.eoy-legend-item__shape {
+  display: block;
+  flex: none;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+}
+
 .eoy-legend-item__shape--disc {
   width: 0.5rem;
   height: 0.5rem;
@@ -961,13 +1401,15 @@ button {
   width: 0.85rem;
   height: 0.85rem;
   background: var(--eoy-type-roadway);
-  border: 2px solid #1b1b1f;
+  box-shadow: 0 0 0 2px var(--eoy-swatch-edge);
 }
 
 .eoy-legend-item__shape--ring {
   background: var(--eoy-type-both);
-  box-shadow: 0 0 0 3px #f5f3ff, 0 0 0 4px #6d28d9;
+  box-shadow: 0 0 0 2px var(--eoy-swatch-edge), 0 0 0 4px var(--eoy-type-both);
 }
+
+/* ---- floating bottom bar -------------------------------------------------- */
 
 .eoy-bottom-bar {
   position: absolute;
@@ -976,52 +1418,93 @@ button {
   bottom: 0;
   z-index: 26;
   display: flex;
-  gap: var(--eoy-space-2);
+  justify-content: center;
+  padding: 0 var(--eoy-space-3);
+  /* Safe-area: this app is used one-handed, with the home indicator right there. */
+  padding-bottom: var(--eoy-safe-bottom);
+  pointer-events: none;
+}
+
+.eoy-bottom-bar__inner {
+  display: flex;
+  gap: var(--eoy-space-3);
   align-items: center;
   justify-content: space-between;
-  padding: var(--eoy-space-2) var(--eoy-space-3);
-  /* Safe-area: this app is used one-handed, with the home indicator right there. */
-  padding-bottom: calc(var(--eoy-space-2) + var(--eoy-safe-bottom));
-  border-top: 1px solid var(--eoy-border);
+  width: min(30rem, 100%);
+  min-height: var(--eoy-tap);
+  padding: 0 var(--eoy-space-2) 0 var(--eoy-space-4);
+  border-radius: var(--eoy-pill);
   background: var(--eoy-surface);
-  box-shadow: 0 -2px 12px rgb(23 23 26 / 8%);
+  color: var(--eoy-text);
+  box-shadow: var(--eoy-shadow-raised);
+  pointer-events: auto;
 }
 
 .eoy-bottom-bar__count {
+  display: flex;
+  align-items: baseline;
+  gap: var(--eoy-space-2);
   margin: 0;
-  font-size: var(--eoy-text-sm);
+  min-width: 0;
+}
+
+.eoy-bottom-bar__num {
+  font-size: var(--eoy-text-lg);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.eoy-bottom-bar__unit {
+  font-size: var(--eoy-text-sm);
+  color: var(--eoy-text-muted);
+  white-space: nowrap;
 }
 
 .eoy-segmented {
   display: inline-flex;
-  padding: 2px;
+  flex: none;
   gap: 2px;
-  border: 1px solid var(--eoy-border);
-  border-radius: var(--eoy-radius);
-  background: var(--eoy-bg);
+  padding: 3px;
+  border-radius: var(--eoy-pill);
+  background: var(--eoy-chip);
 }
 
 .eoy-segmented__option {
   display: inline-flex;
   align-items: center;
   gap: var(--eoy-space-1);
-  min-height: calc(var(--eoy-tap) - 8px);
+  /* 38px, not 44px: the segmented control sits inside a 44px floating bar, and a pair of
+     44px options inside it would make the bar a wall. 38px clears WCAG 2.5.8 (24px AA) with
+     room to spare and is comfortable on a phone; it does not claim 2.5.5 (44px AAA), and
+     nothing in this stylesheet pretends otherwise. */
+  min-height: calc(var(--eoy-tap) - 6px);
   padding: 0 var(--eoy-space-3);
   border: 0;
-  border-radius: calc(var(--eoy-radius) - 2px);
+  border-radius: var(--eoy-pill);
   background: transparent;
   color: var(--eoy-text);
   font: inherit;
   font-size: var(--eoy-text-sm);
-  font-weight: 700;
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .eoy-segmented__option[aria-checked='true'] {
-  background: var(--eoy-warm-dark);
-  color: var(--eoy-text-inverse);
+  background: #000000;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.eoy-segmented .eoy-button__count {
+  background: #000000;
+  color: #ffffff;
+}
+
+.eoy-segmented__option[aria-checked='true'] .eoy-button__count {
+  background: #ffffff;
+  color: #000000;
 }
 
 /* ---- detail sheet --------------------------------------------------------- */
@@ -1034,14 +1517,13 @@ button {
   z-index: 35;
   display: flex;
   flex-direction: column;
-  max-height: min(78%, 34rem);
+  max-height: min(82%, 36rem);
   padding: var(--eoy-space-2) var(--eoy-space-4) var(--eoy-space-4);
   padding-bottom: calc(var(--eoy-space-4) + var(--eoy-safe-bottom));
-  border-top: 1px solid var(--eoy-border);
-  border-radius: var(--eoy-radius-lg) var(--eoy-radius-lg) 0 0;
+  border-radius: var(--eoy-radius-xl) var(--eoy-radius-xl) 0 0;
   background: var(--eoy-surface);
   color: var(--eoy-text);
-  box-shadow: 0 -8px 32px rgb(23 23 26 / 22%);
+  box-shadow: 0 -8px 32px rgb(0 0 0 / 22%);
 }
 
 /* The drag affordance. Decorative: the sheet is opened and closed with real
@@ -1049,25 +1531,25 @@ button {
 .eoy-sheet__grip {
   flex: none;
   width: 2.5rem;
-  height: 0.3rem;
-  margin: 0 auto var(--eoy-space-2);
-  border-radius: 999px;
+  height: 0.25rem;
+  margin: 0 auto var(--eoy-space-3);
+  border-radius: var(--eoy-pill);
   background: var(--eoy-border-strong);
 }
 
 .eoy-sheet__head {
   display: flex;
-  gap: var(--eoy-space-2);
+  gap: var(--eoy-space-3);
   align-items: flex-start;
   justify-content: space-between;
 }
 
 .eoy-sheet__title {
   margin: 0;
-  font-size: var(--eoy-text-xl);
-  font-weight: 800;
+  font-size: var(--eoy-text-2xl);
+  font-weight: 700;
   letter-spacing: -0.02em;
-  line-height: 1.15;
+  line-height: 1.2;
 }
 
 .eoy-sheet__legal {
@@ -1085,28 +1567,36 @@ button {
   justify-content: center;
   padding: 0;
   border: 1px solid var(--eoy-border);
-  border-radius: var(--eoy-radius);
-  background: var(--eoy-surface);
+  border-radius: 50%;
+  background: var(--eoy-chip);
   color: var(--eoy-text);
   cursor: pointer;
 }
 
 .eoy-sheet__body {
-  margin: var(--eoy-space-3) 0 0;
+  margin: var(--eoy-space-4) 0 0;
   overflow-y: auto;
   min-height: 0;
+  /* Same reasoning as the list: the sheet's own actions sit at the foot, and a focused
+     control scrolled to the very bottom must not hide under them. */
+  scroll-padding-block: var(--eoy-space-3) var(--eoy-space-3);
 }
 
 .eoy-sheet__address {
   margin: 0;
   font-size: var(--eoy-text-md);
+  font-style: normal;
+}
+
+.eoy-sheet__address-line {
+  display: block;
 }
 
 .eoy-sheet__section-title {
-  margin: var(--eoy-space-3) 0 var(--eoy-space-1);
+  margin: var(--eoy-space-4) 0 var(--eoy-space-2);
   font-size: var(--eoy-text-xs);
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--eoy-text-muted);
 }
@@ -1116,41 +1606,45 @@ button {
   padding: 0;
   list-style: none;
   display: grid;
-  gap: var(--eoy-space-1);
+  gap: var(--eoy-space-2);
 }
 
 .eoy-type-list__item {
   display: grid;
-  grid-template-columns: 1.1rem 1fr;
+  grid-template-columns: 1.25rem 1fr;
   gap: var(--eoy-space-2);
   align-items: start;
   font-size: var(--eoy-text-sm);
+  font-weight: 500;
 }
 
 .eoy-type-list__check {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.1rem;
-  height: 1.1rem;
-  border-radius: 4px;
-  background: var(--eoy-accent);
-  color: var(--eoy-accent-contrast);
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: #000000;
+  color: #ffffff;
 }
 
 .eoy-type-list__shape {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--eoy-space-2);
   margin-top: 2px;
   font-size: var(--eoy-text-xs);
+  font-weight: 400;
   color: var(--eoy-text-muted);
 }
 
 .eoy-sheet__note {
-  margin: var(--eoy-space-2) 0 0;
-  padding: var(--eoy-space-2);
-  border-left: 3px solid var(--eoy-accent);
-  border-radius: 0 var(--eoy-radius) var(--eoy-radius) 0;
-  background: var(--eoy-accent-soft);
+  margin: var(--eoy-space-3) 0 0;
+  padding: var(--eoy-space-3);
+  border-radius: var(--eoy-radius);
+  background: var(--eoy-chip);
   font-size: var(--eoy-text-sm);
 }
 
@@ -1162,13 +1656,14 @@ button {
 
 .eoy-sheet__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--eoy-space-2);
-  padding-top: var(--eoy-space-3);
+  padding-top: var(--eoy-space-4);
 }
 
 .eoy-sheet__attribution {
-  margin: var(--eoy-space-3) 0 0;
-  padding-top: var(--eoy-space-2);
+  margin: var(--eoy-space-4) 0 0;
+  padding-top: var(--eoy-space-3);
   border-top: 1px solid var(--eoy-border);
   font-size: var(--eoy-text-xs);
   color: var(--eoy-text-muted);
@@ -1176,26 +1671,73 @@ button {
 
 .eoy-sheet__attribution a {
   color: inherit;
+  text-underline-offset: 2px;
 }
 
 /* ---- wider layouts: same product, more room ------------------------------- */
 
 @media (min-width: 45rem) {
-  .eoy-sheet {
-    top: calc(var(--eoy-header-height) + var(--eoy-space-2));
-    left: auto;
-    right: var(--eoy-space-3);
-    bottom: calc(var(--eoy-tap) + var(--eoy-space-5));
-    width: min(24rem, 40vw);
-    max-height: none;
-    border: 1px solid var(--eoy-border);
-    border-radius: var(--eoy-radius-lg);
+  .eoy-header__bar {
+    min-height: 4.25rem;
+    padding: var(--eoy-space-3) var(--eoy-space-4);
+  }
+
+  .eoy-wordmark {
+    font-size: var(--eoy-text-lg);
+  }
+
+  .eoy-search {
+    flex: 0 1 26rem;
+  }
+
+  .eoy-rail {
+    padding: 0 var(--eoy-space-4) var(--eoy-space-3);
   }
 
   .eoy-legend {
-    right: auto;
-    left: var(--eoy-space-3);
-    bottom: calc(var(--eoy-tap) + var(--eoy-space-5) + var(--eoy-space-2));
+    bottom: calc(var(--eoy-tap) + var(--eoy-space-5) + var(--eoy-space-3));
   }
 
+  /*
+   * On a wide screen the sheet becomes a side panel beside the map instead of a bottom
+   * sheet over it. `max-height` is derived from the header rather than `top` being a
+   * hand-tuned number: if the header ever grows, the sheet shrinks and its own body
+   * scrolls, instead of the sheet quietly sliding up underneath the filter rail.
+   */
+  .eoy-sheet {
+    top: auto;
+    left: auto;
+    right: var(--eoy-space-4);
+    bottom: calc(var(--eoy-tap) + var(--eoy-space-5));
+    width: min(26rem, 40vw);
+    max-height: calc(100% - var(--eoy-header-height) - var(--eoy-space-6));
+    border-radius: var(--eoy-radius-lg);
+  }
+}
+
+/*
+ * 320px and up (WCAG 1.4.10 Reflow, which requires content to work at 320 CSS px without
+ * two-dimensional scrolling).
+ *
+ * Below 30rem the single header row cannot hold a wordmark, a search field and a button
+ * without squeezing the search field to about 50px — technically not an overflow, and
+ * practically unusable. So the row WRAPS: the wordmark and Near me share the first line,
+ * and search takes the whole second line at full width. This is the same thing every
+ * mapping app does on a phone, and it keeps the primary control the widest thing in the
+ * header rather than the narrowest.
+ */
+@media (max-width: 30rem) {
+  .eoy-header__bar {
+    flex-wrap: wrap;
+  }
+
+  .eoy-wordmark {
+    flex: 1 1 auto;
+    font-size: var(--eoy-text-sm);
+  }
+
+  .eoy-search {
+    order: 3;
+    flex: 1 1 100%;
+  }
 }

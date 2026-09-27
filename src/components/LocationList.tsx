@@ -22,12 +22,13 @@
  *   the filters.
  */
 
-import type { JSX, RefObject } from 'react';
+import type { JSX, KeyboardEvent, RefObject } from 'react';
+import { useRef } from 'react';
 import type { VisibleLocation } from '../hooks/useVisibleLocations';
 import { describeType, typeStyle } from '../map/style';
 import { formatAddress, formatBoroughCount } from '../lib/format';
 import { ListEmptyState } from './StateCards';
-import { MapIcon } from './icons';
+import { ListIcon, MapIcon } from './icons';
 
 export interface LocationListProps {
   readonly visible: boolean;
@@ -162,19 +163,53 @@ export interface ViewToggleProps {
   readonly listCount: number;
 }
 
+type ViewMode = 'map' | 'list';
+
+const VIEW_ORDER: readonly ViewMode[] = ['map', 'list'];
+
 /**
  * A radiogroup, because it is a single choice between two peer views, and a radiogroup
- * gives the arrow-key navigation and the "1 of 2" announcement for free.
+ * gives the arrow-key navigation and the "1 of 2" announcement.
+ *
+ * THE ARROW KEYS ARE IMPLEMENTED HERE, not left to the browser, because `role="radio"` on a
+ * `<button>` opts OUT of native radio behaviour and into the WAI-ARIA pattern — and the
+ * WAI-ARIA pattern is the one that requires Arrow keys to move the selection. Without this
+ * handler the group looked and announced like a radiogroup but did not behave like one,
+ * which is worse than either extreme: a keyboard user tabs onto "Map", presses Right, and
+ * nothing happens. Roving `tabindex` comes with it, so the pair is one tab stop rather than
+ * two, which is what the pattern means by a radiogroup.
  */
 export function ViewToggle({ mode, onChange, listCount }: ViewToggleProps): JSX.Element {
+  const mapRef = useRef<HTMLButtonElement | null>(null);
+  const listRef = useRef<HTMLButtonElement | null>(null);
+
+  function move(next: ViewMode): void {
+    onChange(next);
+    (next === 'map' ? mapRef : listRef).current?.focus();
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLButtonElement>): void {
+    const forward = event.key === 'ArrowRight' || event.key === 'ArrowDown';
+    const back = event.key === 'ArrowLeft' || event.key === 'ArrowUp';
+    if (!forward && !back) return;
+    event.preventDefault();
+    const index = VIEW_ORDER.indexOf(mode);
+    const delta = forward ? 1 : -1;
+    const next = VIEW_ORDER[(index + delta + VIEW_ORDER.length) % VIEW_ORDER.length];
+    if (next !== undefined) move(next);
+  }
+
   return (
     <div className="eoy-segmented" role="radiogroup" aria-label="Map or list view">
       <button
         type="button"
         role="radio"
+        ref={mapRef}
         className="eoy-segmented__option"
         aria-checked={mode === 'map'}
+        tabIndex={mode === 'map' ? 0 : -1}
         onClick={() => onChange('map')}
+        onKeyDown={onKeyDown}
       >
         <MapIcon size={16} />
         Map
@@ -182,10 +217,14 @@ export function ViewToggle({ mode, onChange, listCount }: ViewToggleProps): JSX.
       <button
         type="button"
         role="radio"
+        ref={listRef}
         className="eoy-segmented__option"
         aria-checked={mode === 'list'}
+        tabIndex={mode === 'list' ? 0 : -1}
         onClick={() => onChange('list')}
+        onKeyDown={onKeyDown}
       >
+        <ListIcon size={16} />
         List
         <span className="eoy-visually-hidden">, {formatBoroughCount(listCount)} available</span>
         {listCount > 0 ? (
