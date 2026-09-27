@@ -1,0 +1,464 @@
+name: refresh-data
+
+# Rebuilds the published dataset from NYC Open Data and commits it ONLY when the
+# cleaned records actually changed. The full reasoning for that lives in the
+# "Detect material change" step below; the short version is that a naive
+# `git diff` would fire on every single run because retrievedAt and generatedAt
+# are wall-clock stamps.
+on:
+  workflow_dispatch:
+    inputs:
+      force_commit:
+        description: 'Commit and push even when the contentHash is unchanged.'
+        type: boolean
+        default: false
+  schedule:
+    # 10:23 UTC daily == 06:23 America/New_York (EDT) / 05:23 (EST).
+    #
+    # Why this slot:
+    #   * NYC Open Data runs its dataset ETL overnight Eastern and the morning
+    #     batch is normally done by 04:00-05:00 ET. Running after 06:00 ET picks
+    #     up the previous night's publish instead of racing it.
+    #   * 10:23 UTC is quiet for the shared GitHub-hosted runner pool. The
+    #     throttling everyone hits is on the hour (:00) and across the US
+    #     business day; the :23 offset dodges both the queue pile-up and the
+    #     burst of jobs other repos also schedule on the hour.
+    #   * A missed run is self-healing. The check is "does the current snapshot
+    #     differ from HEAD", not "did yesterday's run commit", so the next run
+    #     publishes whatever accumulated in the meantime.
+    #
+    # GitHub disables scheduled workflows in a repository with no activity for
+    # 60 days. workflow_dispatch always works.
+    - cron: '23 10 * * *'
+
+# One refresh at a time. cancel-in-progress is false so a manual run is never
+# killed halfway through a push by the next scheduled run.
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    name: Refresh fpeh-f7ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      # fetch-depth 0 gives a real HEAD commit plus a full history, so
+      # `git show HEAD:public/data/metadata.json` and the rebase-retry below
+      # both behave. A shallow clone is enough to commit, but the retry path
+      # would be unable to rebase.
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt
+
+      # ---------------------------------------------------------------------
+      # Stage 1 - rebuild the artifacts from the live source.
+      # refresh_data.py stops at the first failing stage and exits non-zero.
+      # ---------------------------------------------------------------------
+      - name: Run the data pipeline
+        run: |
+          set -euo pipefail
+          python3 scripts/refresh_data.py
+
+      - name: Validate the artifacts (strict)
+        # --strict promotes upstream schema drift to a failure. A sixth borough
+        # or a third license_type is a schema change a human must look at, not
+        # something to auto-commit.
+        run: |
+          set -euo pipefail
+          python3 scripts/validate_data.py --strict
+
+      # ---------------------------------------------------------------------
+      # Stage 2 - NO-OP COMMIT DETECTION. Read this comment before changing it.
+      #
+      # THE TRAP. `retrievedAt` (public/data/metadata.json) and `generatedAt`
+      # (data/processed/report.json) are stamped with "now" on every run, so
+      # `git diff --quiet -- public/data data/processed` ALWAYS reports a
+      # change and a naive implementation commits every single day. Measured
+      # locally by running scripts/refresh_data.py twice and diffing:
+      #
+      #     metadata.json  differs  ->  only `retrievedAt`
+      #     report.json    differs  ->  only `generatedAt`
+      #     cafes.geojson  IDENTICAL (byte for byte)
+      #     contentHash    identical  ->  b5c4740620a7284367ad3320a25d7f0937a4e1ee831dcfea8ef4fd67c1a3a64c
+      #
+      # THE FIX. Compare CONTENT, never timestamps and never file mtimes, using
+      # two independently computed signals that must agree:
+      #
+      #   Signal A (primary) - contentHash.
+      #     scripts/_common.py content_hash() is sha256 over
+      #     canonical_json(features sorted by id). The features are the published
+      #     records and canonical_json sorts keys, so the digest is invariant to
+      #     Socrata row order, JSON key order and wall-clock. It takes the feature
+      #     list as its only input, so it structurally CANNOT observe a
+      #     timestamp - neither metadata.json nor report.json is hashed.
+      #     clean_data.py writes the same digest into both files, and
+      #     validate_data.py (cross_check) has already asserted it equals a
+      #     recomputation over the features. This step recomputes it a third
+      #     time, over the bytes that are about to be committed, so a hand-edited
+      #     cafes.geojson cannot slip past.
+      #
+      #   Signal B (cross-check) - timestamp-stripped comparison of all three
+      #     tracked artifacts. Every field is "material" except retrievedAt,
+      #     generatedAt and sourceUpdatedAt. cafes.geojson is compared as bytes,
+      #     since it contains no timestamp at all.
+      #
+      #   A disagreement between A and B FAILS the workflow rather than
+      #   committing on an ambiguous answer. Disagreement means the artifacts on
+      #   disk and the hash contract have drifted apart, which is a bug in this
+      #   repository, not drift in the upstream data.
+      #
+      #   sourceUpdatedAt is deliberately non-material. It is the dataset's
+      #   rowsUpdatedAt, which moves when DOT republishes metadata even if not one
+      #   row changed. Committing for that would add a commit every single day
+      #   forever. Skipping it is the difference between "the records changed"
+      #   and "we looked again".
+      # ---------------------------------------------------------------------
+      - name: Detect material change
+        id: detect
+        env:
+          FORCE_COMMIT: ${{ inputs.force_commit }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee -a "${GITHUB_STEP_SUMMARY}"
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "scripts")
+          import _common as C  # noqa: E402
+
+          GEOJSON = "public/data/cafes.geojson"
+          METADATA = "public/data/metadata.json"
+          REPORT = "data/processed/report.json"
+
+          # Wall-clock of this run, or of DOT's last metadata publish. None of
+          # these describe the records, so none of them may trigger a commit.
+          NON_MATERIAL = frozenset({"retrievedAt", "generatedAt", "sourceUpdatedAt"})
+
+          def out(message=""):
+              # The run block pipes stdout into the job summary, so printing is
+              # how this reports.
+              print(message)
+
+          def fail(message):
+              out()
+              out(f"::error::{message}")
+              sys.exit(1)
+
+          def committed_bytes(path):
+              """Blob bytes for `path` at HEAD, or None when there is no baseline."""
+              result = subprocess.run(
+                  ["git", "show", f"HEAD:{path}"],
+                  capture_output=True,
+                  check=False,
+              )
+              if result.returncode != 0:
+                  return None
+              return result.stdout
+
+          def committed_json(path):
+              raw = committed_bytes(path)
+              if raw is None:
+                  return None
+              try:
+                  return json.loads(raw.decode("utf-8"))
+              except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                  fail(f"HEAD:{path} is not valid JSON ({exc}); refusing to guess")
+
+          def strip_non_material(value):
+              if not isinstance(value, dict):
+                  return value
+              return {k: v for k, v in value.items() if k not in NON_MATERIAL}
+
+          def field_delta(old, new):
+              """Top-level keys whose material value moved, for the summary."""
+              if not isinstance(old, dict) or not isinstance(new, dict):
+                  return ["<shape>"]
+              moved = []
+              for key in sorted(set(old) | set(new)):
+                  if key in NON_MATERIAL:
+                      continue
+                  if old.get(key) != new.get(key):
+                      moved.append(key)
+              return moved
+
+          out("#### No-op commit detection")
+          out()
+
+          new_metadata = json.loads(Path(METADATA).read_text(encoding="utf-8"))
+          new_report = json.loads(Path(REPORT).read_text(encoding="utf-8"))
+          new_geojson_bytes = Path(GEOJSON).read_bytes()
+
+          # --- Signal A ------------------------------------------------------
+          new_hash = new_metadata.get("contentHash")
+          if not isinstance(new_hash, str) or len(new_hash) != 64:
+              fail(f"{METADATA} has no usable contentHash; refusing to decide")
+
+          if new_report.get("contentHash") != new_hash:
+              fail(
+                  f"{REPORT} contentHash {new_report.get('contentHash')!r} != "
+                  f"{METADATA} contentHash {new_hash!r}"
+              )
+
+          features = json.loads(new_geojson_bytes.decode("utf-8")).get("features", [])
+          recomputed = C.content_hash(features)
+          if recomputed != new_hash:
+              fail(
+                  f"contentHash {new_hash} does not match a recomputation over "
+                  f"{GEOJSON} ({recomputed}); the artifact was edited by hand"
+              )
+          out(f"- records hashed: **{len(features)}**")
+          out(f"- new contentHash: `{new_hash}`")
+
+          old_metadata = committed_json(METADATA)
+          old_geojson_bytes = committed_bytes(GEOJSON)
+
+          if old_metadata is None or old_geojson_bytes is None:
+              hash_changed = True
+              baseline = None
+              out("- baseline: none in HEAD (first publish, or metadata.json untracked)")
+          else:
+              baseline = old_metadata.get("contentHash")
+              if isinstance(baseline, str) and len(baseline) == 64:
+                  old_features = json.loads(old_geojson_bytes.decode("utf-8")).get("features", [])
+                  old_recomputed = C.content_hash(old_features)
+                  if old_recomputed != baseline:
+                      fail(
+                          f"HEAD contentHash {baseline} does not match HEAD:{GEOJSON} "
+                          f"({old_recomputed}); the committed baseline is corrupt"
+                      )
+              hash_changed = baseline != new_hash
+              out(f"- old contentHash: `{baseline}`")
+
+          # --- Signal B ------------------------------------------------------
+          material_moves = []
+          old_geojson = old_geojson_bytes
+          if old_geojson is None or old_geojson != new_geojson_bytes:
+              material_moves.append(f"{GEOJSON}: bytes differ")
+          for path, new_doc in ((METADATA, new_metadata), (REPORT, new_report)):
+              old_doc = committed_json(path)
+              if old_doc is None:
+                  material_moves.append(f"{path}: absent in HEAD")
+                  continue
+              moved = field_delta(strip_non_material(old_doc), strip_non_material(new_doc))
+              for key in moved:
+                  material_moves.append(f"{path}: {key} differs")
+
+          content_changed = bool(material_moves)
+          out(f"- material field changes: **{len(material_moves)}**")
+          for move in material_moves[:20]:
+              out(f"  - {move}")
+          if len(material_moves) > 20:
+              out(f"  - ... and {len(material_moves) - 20} more")
+          out()
+
+          # --- Decision ------------------------------------------------------
+          if hash_changed and not content_changed:
+              fail(
+                  "the contentHash changed but no material field changed. The two "
+                  "signals disagree, which is a bug in this repository, not upstream "
+                  "drift. Nothing was committed."
+              )
+          if content_changed and not hash_changed:
+              fail(
+                  "material fields changed but the contentHash did not. The hash is "
+                  "supposed to cover exactly those records; the artifacts and the "
+                  "contract have drifted apart. Nothing was committed."
+              )
+
+          changed = hash_changed
+          if not changed and os.environ.get("FORCE_COMMIT", "").lower() == "true":
+              changed = True
+              out("- force_commit requested, committing an unchanged snapshot.")
+
+          if changed:
+              out("**MATERIAL CHANGE - running the gates and committing.**")
+          else:
+              out(
+                  "**No material change.** Only retrievedAt/generatedAt/"
+                  "sourceUpdatedAt moved, which is timestamp churn. Skipping the "
+                  "commit entirely."
+              )
+          out()
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"changed={'true' if changed else 'false'}\n")
+              handle.write(f"new_hash={new_hash}\n")
+              handle.write(f"old_hash={baseline if isinstance(baseline, str) else 'unknown'}\n")
+              handle.write(f"record_count={len(features)}\n")
+              handle.write(f"source_rows={new_metadata.get('sourceRowCount', 'unknown')}\n")
+          PY
+
+      - name: Restore artifacts when nothing changed
+        if: steps.detect.outputs.changed == 'false'
+        run: |
+          set -euo pipefail
+          # The pipeline rewrote metadata.json and report.json with fresh
+          # timestamps. Undo that so the tree is clean and no stray diff can
+          # leak into a later step. The published records are byte-identical, so
+          # nothing of substance is lost by restoring.
+          git restore --source=HEAD --worktree -- \
+            public/data/cafes.geojson \
+            public/data/metadata.json \
+            data/processed/report.json
+          echo "Clean tree check (expected no output):"
+          git status --porcelain -- public/data data/processed
+
+      # ---------------------------------------------------------------------
+      # Stage 3 - gates. Reached only when the content changed, so a daily no-op
+      # run costs one Python job and no npm install.
+      # ---------------------------------------------------------------------
+      - name: Set up Node 20.19
+        if: steps.detect.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          # Satisfies engines.node ">=20.19" from package.json. Pinned so a
+          # toolchain bump is a visible diff rather than a surprise.
+          node-version: '20.19.0'
+          cache: npm
+
+      - name: Install npm dependencies
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - name: Lint
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          npm run lint
+
+      - name: Unit tests
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          npm test
+
+      - name: Validate data
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          # `npm run data:validate -- --strict` forwards --strict to
+          # scripts/validate_data.py, matching the pipeline run above.
+          npm run data:validate -- --strict
+
+      - name: Build
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          # Derive the Pages subpath base the same way deploy.yml does, so a
+          # base-path regression fails here too and not only at deploy time.
+          owner="${GITHUB_REPOSITORY%%/*}"
+          repo="${GITHUB_REPOSITORY##/*}"
+          if [ "$repo" = "${owner}.github.io" ]; then
+            export VITE_BASE_PATH="/"
+          else
+            export VITE_BASE_PATH="/${repo}/"
+          fi
+          echo "VITE_BASE_PATH=${VITE_BASE_PATH}"
+          npm run build
+
+      # ---------------------------------------------------------------------
+      # Stage 4 - commit and push. Only reached when every gate above passed:
+      # `set -euo pipefail` aborts the step, and therefore the job, on the first
+      # non-zero exit. A failing gate means no commit and no deploy.
+      # ---------------------------------------------------------------------
+      - name: Commit and push
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          OLD_HASH: ${{ steps.detect.outputs.old_hash }}
+          NEW_HASH: ${{ steps.detect.outputs.new_hash }}
+          RECORD_COUNT: ${{ steps.detect.outputs.record_count }}
+          SOURCE_ROWS: ${{ steps.detect.outputs.source_rows }}
+          FORCE_COMMIT: ${{ inputs.force_commit }}
+        run: |
+          set -euo pipefail
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # Stage ONLY the published artifacts. `git add -A` would sweep in
+          # anything else the working tree happens to hold.
+          git add -- \
+            public/data/cafes.geojson \
+            public/data/metadata.json \
+            data/processed/report.json
+
+          # Defence in depth. If nothing is staged, the detector and the files
+          # disagree and we do not want a mystery commit - unless the operator
+          # explicitly asked for one via the force_commit input.
+          if git diff --cached --quiet; then
+            if [ "${FORCE_COMMIT}" != "true" ]; then
+              echo "::error::change detection reported a change but no artifact is staged. Refusing to create an empty commit."
+              exit 1
+            fi
+            echo "force_commit was set and only timestamps differ; committing anyway."
+          fi
+
+          # One -m per paragraph: a newline inside a YAML block scalar would
+          # terminate the block and turn the rest of the shell into YAML.
+          short="${NEW_HASH:0:7}"
+          subject="data: refresh fpeh-f7ci (${RECORD_COUNT} locations, hash ${short})"
+          if [ "${OLD_HASH}" != "unknown" ]; then
+            git commit -m "$subject" -m "contentHash: ${OLD_HASH} -> ${NEW_HASH}" -m "sourceRows: ${SOURCE_ROWS}"
+          else
+            git commit -m "$subject" -m "First published snapshot. Previous contentHash: unknown."
+          fi
+
+          # Push with exactly one rebase-and-retry. Never --force: a force push
+          # would destroy a maintainer's concurrent commit on main.
+          branch="${GITHUB_REF_NAME}"
+          for attempt in 1 2; do
+            if git push origin "HEAD:refs/heads/${branch}"; then
+              echo "Pushed to origin/${branch} on attempt ${attempt}."
+              exit 0
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "::error::push rejected twice. Another writer advanced ${branch}; the data commit was NOT pushed. Re-run this workflow."
+              exit 1
+            fi
+            echo "Push rejected. Rebasing onto origin/${branch} and retrying once."
+            git fetch origin "${branch}"
+            if ! git rebase "origin/${branch}"; then
+              echo "::error::rebase failed. A concurrent commit touched the same data files and needs manual resolution."
+              exit 1
+            fi
+          done
+
+      - name: Summarise
+        if: always()
+        env:
+          CHANGED: ${{ steps.detect.outputs.changed }}
+          OLD_HASH: ${{ steps.detect.outputs.old_hash }}
+          NEW_HASH: ${{ steps.detect.outputs.new_hash }}
+        run: |
+          set -euo pipefail
+          {
+            echo
+            echo "- result: \`${{ steps.detect.outputs.changed == 'true' && 'committed' || 'no material change' }}\`"
+            echo "- contentHash: \`${NEW_HASH:-not computed}\` (was \`${OLD_HASH:-unknown}\`)"
+            echo "- job: \`${{ job.status }}\`"
+          } >>"${GITHUB_STEP_SUMMARY}"

@@ -1,0 +1,186 @@
+name: deploy
+
+# Three ways in:
+#
+#   1. push to main             - a human or a merged PR changed code.
+#   2. workflow_run            - refresh-data finished successfully. A commit
+#                                pushed by GITHUB_TOKEN does NOT trigger the
+#                                `push` event above (GitHub suppresses workflow
+#                                runs created by the default token, to stop
+#                                recursion). Without this trigger a data-only
+#                                commit would sit on main and never be
+#                                published. This is the whole reason it exists.
+#   3. workflow_dispatch       - re-deploy by hand, no code change.
+#
+# A failed refresh-data never reaches here: the guard below requires a
+# `success` conclusion, so a broken data commit cannot be deployed.
+on:
+  push:
+    branches:
+      - main
+  workflow_run:
+    workflows:
+      - refresh-data
+    types:
+      - completed
+  workflow_dispatch:
+
+# One Pages deployment at a time. GitHub Pages only serves one deployment at a
+# time, and the official starter workflow uses the same group name. Cancelling
+# an in-flight deploy is NOT wanted: a half-finished upload would be worse than
+# a queued one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Restated rather than inherited, so the one place the extra scope is
+    # granted is visible in a diff. actions/configure-pages needs `pages: write`
+    # and `id-token: write` to enable the site; nothing else in this job does,
+    # and this job never pushes to the repository.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          # On workflow_run the default ref is the default branch, which may
+          # already have moved past the commit refresh-data validated. Pin the
+          # build to the exact SHA that workflow ran on.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # persist-credentials is unnecessary here: this job never pushes.
+
+      # Enables the Pages site (idempotent if it is already on) and tells the
+      # platform we are about to publish. `enablement: true` is what lets a
+      # first-time fork publish without anyone visiting Settings first; drop the
+      # flag if your repository's Pages source is already "GitHub Actions" and
+      # you would rather this step never be able to change repository settings.
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      # ---------------------------------------------------------------------
+      # Base path for repository-subpath hosting.
+      #
+      # GitHub Pages serves a project site at
+      #   https://<owner>.github.io/<repo>/
+      # so a Vite build with base "/" would emit /assets/index-abc.js, which
+      # 404s, and would make import.meta.env.BASE_URL = "/". src/data/load.ts
+      # builds its fetch URLs from BASE_URL, so the GeoJSON would 404 too.
+      #
+      # We derive the base from the repository name at run time and pass it as
+      # VITE_BASE_PATH, which vite.config.ts already reads. A fork named
+      # eat-outside-nyc-fork therefore deploys correctly with nobody editing a
+      # single file. Nothing is hard-coded to the upstream repository name.
+      #
+      # "/<repo>/" rather than "./":
+      #   * "./" happens to work for this single-page app served from the
+      #     directory root, because every asset sits one level down. It breaks
+      #     the moment the document URL has a different depth - a redirect to
+      #     /index.html, a nested route, or a served subdirectory.
+      #   * An absolute "/<repo>/" is unambiguous for both the emitted asset
+      #     URLs and BASE_URL-derived fetches, at any document depth.
+      #   * The one case where "/" is correct is an owner/org Pages site, whose
+      #     repository is named <owner>.github.io and is served at the domain
+      #     root. That case is handled explicitly below.
+      #
+      # configure-pages also publishes the platform's own answer as
+      # `steps.pages.outputs.base_path`. It is logged below for comparison but
+      # deliberately not used as the source of truth: the repository name is
+      # deterministic, works identically for a fork, and does not depend on an
+      # API call having succeeded.
+      # ---------------------------------------------------------------------
+      - name: Resolve the Pages base path
+        id: base
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%%/*}"
+          repo="${GITHUB_REPOSITORY##*/}"
+          if [ "$repo" = "${owner}.github.io" ]; then
+            base="/"
+          else
+            base="/${repo}/"
+          fi
+          echo "base=${base}" >>"${GITHUB_OUTPUT}"
+          {
+            echo "### deploy"
+            echo
+            echo "- repository: \`${GITHUB_REPOSITORY}\`"
+            echo "- \`VITE_BASE_PATH\` = \`${base}\`"
+            echo "- configure-pages \`base_path\` = \`${{ steps.pages.outputs.base_path || '(not reported)' }}\`"
+          } >>"${GITHUB_STEP_SUMMARY}"
+          echo "VITE_BASE_PATH=${base}"
+
+      - name: Set up Node 20.19
+        uses: actions/setup-node@v4
+        with:
+          # Satisfies engines.node ">=20.19" in package.json. Pinned so a
+          # toolchain bump shows up as a diff in this file.
+          node-version: '20.19.0'
+          # Caches ~/.npm keyed on package-lock.json, so npm ci is a no-op
+          # tarball extraction on most runs.
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - name: Lint
+        run: |
+          set -euo pipefail
+          npm run lint
+
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          npm test
+
+      - name: Build
+        env:
+          VITE_BASE_PATH: ${{ steps.base.outputs.base }}
+        run: |
+          set -euo pipefail
+          npm run build
+
+      # npm run build writes dist/. Make it the artifact, not a side effect.
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only a successful build is deployable...
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # ...and GitHub also requires this to be exactly true.
+    permissions:
+      pages: write
+      id-token: write
+    # The Pages environment is what enables the deployment, and the URL it
+    # reports is the link shown in the run summary.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

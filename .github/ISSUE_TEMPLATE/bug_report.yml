@@ -1,0 +1,68 @@
+name: Bug report
+description: Something in the app is broken or behaves incorrectly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template is for the **application**. If a location is wrong, missing
+        or pinned in the wrong place, use the **Data report** template instead —
+        that one asks the right questions.
+
+        If what you are seeing is on the map rather than in the app: no ratings,
+        no opening hours, no menus and no prices, and no way to know whether
+        outdoor seating is available right now. None of those exist in the source
+        dataset and none of them will be added. Everything the app displays comes
+        from NYC Open Data "Dining Out NYC Locations".
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the map
+        2. Filter to Queens
+        3. Click a roadway marker
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: URL
+      description: The address bar after the problem happened. Filter state is encoded in the URL, which makes this very useful.
+      placeholder: https://your-user.github.io/eat-outside-nyc/?borough=Queens&type=roadway
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Where did you see it?
+      options:
+        - The deployed site on GitHub Pages
+        - A fork deployed on GitHub Pages
+        - Running locally with npm run dev
+        - Running locally with npm run preview
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and device
+      placeholder: Safari 18 on an iPhone 16, Chrome 131 on Windows 11
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output
+      description: If the browser console had errors or warnings, paste them. MapLibre reports tile and style problems there, and they are usually the whole answer.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Extra context
+      options:
+        - label: I can reproduce this on the deployed site, not just locally.
+        - label: I tried a private window, in case it is a cached tile or service worker.
+        - label: This is about how the map looks on a small screen.

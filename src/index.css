@@ -1,0 +1,1201 @@
+/**
+ * src/index.css — design tokens and base styles.
+ *
+ * OWNERSHIP: the foundation of this file is the map + data layer's. Stream C may add class
+ * names to it; please extend the token set below rather than introducing raw hex values,
+ * so the map palette and the UI palette cannot drift apart.
+ *
+ * Accessibility contract implemented here:
+ * - `--focus-ring` is a real, high-contrast focus indicator and is applied through
+ *   `:focus-visible` to every interactive element, so keyboard users always see where they
+ *   are. Nothing may set `outline: none` without replacing it.
+ * - Type is never the only signal; `.eoy-legend-item` always renders `shapeDescription`
+ *   text from `src/map/style.ts` next to its colour swatch.
+ *
+ * MapLibre's own stylesheet is imported first so our overrides win on source order.
+ */
+
+@import 'maplibre-gl/dist/maplibre-gl.css';
+
+:root {
+  color-scheme: light;
+
+  /* Type palette — mirrors src/map/style.ts. Kept here so CSS can reference the same
+     values the layers do; update both together. */
+  --eoy-type-sidewalk: #1d4ed8;
+  --eoy-type-roadway: #b45309;
+  --eoy-type-both: #6d28d9;
+  --eoy-cluster: #1f2937;
+  --eoy-selection-ring: #111827;
+
+  /* Surfaces */
+  --eoy-bg: #f7f7f5;
+  --eoy-surface: #ffffff;
+  --eoy-surface-raised: #ffffff;
+  --eoy-border: #d9d9d4;
+  --eoy-border-strong: #a3a39c;
+  --eoy-scrim: rgb(23 23 26 / 55%);
+
+  /* Text — contrast against --eoy-surface is at least 4.5:1 for every value here. */
+  --eoy-text: #1b1b1f;
+  --eoy-text-muted: #55555c;
+  --eoy-text-inverse: #ffffff;
+
+  /* Status */
+  --eoy-error-bg: #fdf2f2;
+  --eoy-error-border: #b42318;
+  --eoy-error-text: #7a1c15;
+
+  /* Focus — one token, used by :focus-visible below. 3px of solid --eoy-focus plus a
+     2px light offset ring keeps it visible on the pale basemap AND on a dark sheet. */
+  --eoy-focus: #1d4ed8;
+  --eoy-focus-contrast: #ffffff;
+  --focus-ring: 0 0 0 2px var(--eoy-focus-contrast), 0 0 0 4px var(--eoy-focus);
+
+  /* Type scale */
+  --eoy-font: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --eoy-text-xs: 0.75rem;
+  --eoy-text-sm: 0.875rem;
+  --eoy-text-md: 1rem;
+  --eoy-text-lg: 1.125rem;
+  --eoy-text-xl: 1.375rem;
+
+  /* Spacing */
+  --eoy-space-1: 0.25rem;
+  --eoy-space-2: 0.5rem;
+  --eoy-space-3: 0.75rem;
+  --eoy-space-4: 1rem;
+  --eoy-space-5: 1.5rem;
+
+  --eoy-radius: 10px;
+  --eoy-radius-lg: 16px;
+  --eoy-shadow: 0 6px 24px rgb(23 23 26 / 12%);
+
+  /* Honours the notch / home indicator on phones. */
+  --eoy-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --eoy-bg: #131316;
+    --eoy-surface: #1c1c20;
+    --eoy-surface-raised: #24242a;
+    --eoy-border: #3a3a42;
+    --eoy-border-strong: #6a6a74;
+    --eoy-text: #f2f2f0;
+    --eoy-text-muted: #b3b3ba;
+    --eoy-error-bg: #2a1614;
+    --eoy-error-border: #f0857a;
+    --eoy-error-text: #ffd2cc;
+    --eoy-focus: #93b4ff;
+    --eoy-focus-contrast: #131316;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--eoy-font);
+  font-size: var(--eoy-text-md);
+  line-height: 1.45;
+  color: var(--eoy-text);
+  background: var(--eoy-bg);
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+/*
+ * Focus indicator. Applied to EVERY interactive element, including the ones MapLibre
+ * injects. `:focus-visible` keeps it off mouse and touch taps but on for keyboard, which
+ * is the behaviour WCAG 2.4.7 (Focus Visible) asks for.
+ */
+:focus-visible {
+  outline: 3px solid var(--eoy-focus);
+  outline-offset: 2px;
+}
+
+/*
+ * MapLibre injects its own small buttons. A 3px offset outline falls outside their hit
+ * area there, so they get the same `--focus-ring` token as an inset double ring instead.
+ * Specificity beats the rule above, so this is the only change to the indicator.
+ */
+.maplibregl-ctrl :focus-visible,
+.maplibregl-ctrl-group button:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+/* MapLibre's canvas is decorative to a screen reader: the list view carries the data. */
+.maplibregl-canvas:focus-visible {
+  outline-offset: -3px;
+}
+
+.maplibregl-ctrl-attrib {
+  font-size: var(--eoy-text-xs);
+}
+
+/* Controls Stream C renders should be real buttons/inputs; these are the base shapes. */
+button {
+  font: inherit;
+  color: inherit;
+  touch-action: manipulation;
+}
+
+.eoy-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.eoy-skip-link {
+  position: absolute;
+  top: var(--eoy-space-2);
+  left: var(--eoy-space-2);
+  z-index: 100;
+  padding: var(--eoy-space-2) var(--eoy-space-3);
+  color: var(--eoy-text-inverse);
+  background: var(--eoy-text);
+  border-radius: var(--eoy-radius);
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.eoy-skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   Stream C — the application layer.
+   Appended, never interleaved: everything above this line is the map/data
+   layer's. New tokens here reuse the palette above so the map and the UI
+   cannot drift.
+   ========================================================================== */
+
+:root {
+  /* Warmth. The basemap is a cool grey raster, so the app's own surfaces carry
+     the heat: a burnt-orange accent, high-contrast ink, no grey mush. */
+  --eoy-accent: #c2410c;
+  --eoy-accent-strong: #9a3412;
+  --eoy-accent-contrast: #ffffff;
+  --eoy-accent-soft: #fff1e7;
+
+  --eoy-warm-dark: #1b1b1f;
+  --eoy-warm-mid: #3f2d20;
+
+  /* Large touch targets: 44px is the WCAG 2.5.5 AAA floor and the practical
+     floor for a phone held one-handed while walking. */
+  --eoy-tap: 44px;
+
+  --eoy-header-height: 3.25rem;
+  --eoy-panel-shadow: 0 10px 32px rgb(23 23 26 / 18%);
+
+  /* Type scale continues from the tokens above. */
+  --eoy-text-2xl: 1.625rem;
+}
+
+/* ---- shell ---------------------------------------------------------------- */
+
+.eoy-app {
+  position: fixed;
+  inset: 0;
+  background: var(--eoy-bg);
+}
+
+/*
+ * Header / map / bottom bar. The bottom bar is absolutely positioned so it OVERLAYS the
+ * map's foot rather than shortening it — the map is the product, and losing a strip of it to
+ * a toolbar is the first thing that makes a map feel like a dashboard.
+ *
+ * This element is what becomes `inert` while the detail sheet is open, which is what makes
+ * the sheet's `aria-modal="true"` an accurate claim rather than a decorative one.
+ */
+.eoy-app__body {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+}
+
+/* ---- header --------------------------------------------------------------- */
+
+.eoy-header {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--eoy-space-2);
+  align-items: center;
+  padding: var(--eoy-space-2) var(--eoy-space-3);
+  background: var(--eoy-warm-dark);
+  color: var(--eoy-text-inverse);
+  box-shadow: var(--eoy-shadow);
+}
+
+.eoy-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoy-space-2);
+  margin: 0;
+  font-size: var(--eoy-text-lg);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--eoy-text-inverse);
+  white-space: nowrap;
+}
+
+.eoy-wordmark__dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--eoy-accent);
+  box-shadow: 0 0 0 3px rgb(255 255 255 / 25%);
+}
+
+/* ---- buttons -------------------------------------------------------------- */
+
+.eoy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--eoy-space-2);
+  min-height: var(--eoy-tap);
+  padding: 0 var(--eoy-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--eoy-radius);
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  font-size: var(--eoy-text-sm);
+  font-weight: 650;
+  cursor: pointer;
+  /* Kill the 300ms tap delay and the double-tap zoom without disabling pan
+     on the map underneath. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.eoy-button:hover:not(:disabled) {
+  background: var(--eoy-surface-raised);
+}
+
+.eoy-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.eoy-button--on-dark {
+  background: rgb(255 255 255 / 12%);
+  border-color: rgb(255 255 255 / 30%);
+  color: var(--eoy-text-inverse);
+}
+
+.eoy-button--on-dark:hover:not(:disabled) {
+  background: rgb(255 255 255 / 22%);
+}
+
+.eoy-button--primary {
+  background: var(--eoy-accent);
+  border-color: var(--eoy-accent-strong);
+  color: var(--eoy-accent-contrast);
+}
+
+.eoy-button--primary:hover:not(:disabled) {
+  background: var(--eoy-accent-strong);
+}
+
+.eoy-button--ghost {
+  background: transparent;
+  border-color: var(--eoy-border);
+}
+
+.eoy-button--small {
+  min-height: 2.25rem;
+  padding: 0 var(--eoy-space-2);
+  font-size: var(--eoy-text-xs);
+}
+
+/* A count pill on a toggle, so the visible state is never colour-only. */
+.eoy-button__count {
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--eoy-accent);
+  color: var(--eoy-accent-contrast);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--eoy-text-xs);
+}
+
+.eoy-button--on-dark .eoy-button__count {
+  background: var(--eoy-text-inverse);
+  color: var(--eoy-warm-dark);
+}
+
+/* ---- search --------------------------------------------------------------- */
+
+.eoy-search {
+  position: relative;
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.eoy-search__form {
+  display: flex;
+  gap: var(--eoy-space-2);
+}
+
+.eoy-search__field {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: var(--eoy-space-2);
+  min-height: var(--eoy-tap);
+  padding: 0 var(--eoy-space-3);
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: var(--eoy-radius);
+  background: rgb(255 255 255 / 10%);
+}
+
+.eoy-search__field:focus-within {
+  background: rgb(255 255 255 / 18%);
+  border-color: var(--eoy-text-inverse);
+}
+
+.eoy-search__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: calc(var(--eoy-tap) - 2px);
+  border: 0;
+  background: transparent;
+  color: var(--eoy-text-inverse);
+  font: inherit;
+  font-size: var(--eoy-text-sm);
+}
+
+.eoy-search__input::placeholder {
+  color: rgb(255 255 255 / 72%);
+}
+
+.eoy-search__input:focus {
+  outline: none; /* the wrapper's focus-within treatment plus :focus-visible below */
+}
+
+.eoy-search__field:has(.eoy-search__input:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+
+.eoy-search__icon {
+  flex: none;
+  color: rgb(255 255 255 / 80%);
+}
+
+.eoy-search__clear,
+.eoy-search__submit {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 16%);
+  color: var(--eoy-text-inverse);
+  cursor: pointer;
+}
+
+.eoy-search__submit {
+  background: var(--eoy-accent);
+}
+
+/* ---- search results ------------------------------------------------------- */
+
+.eoy-search__panel {
+  position: absolute;
+  top: calc(100% + var(--eoy-space-2));
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: min(60vh, 24rem);
+  overflow-y: auto;
+  border: 1px solid var(--eoy-border);
+  border-radius: var(--eoy-radius);
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  box-shadow: var(--eoy-panel-shadow);
+  text-align: left;
+}
+
+.eoy-search__results {
+  margin: 0;
+  padding: var(--eoy-space-1);
+}
+
+.eoy-search__group + .eoy-search__group {
+  margin-top: var(--eoy-space-1);
+  border-top: 1px solid var(--eoy-border);
+  padding-top: var(--eoy-space-1);
+}
+
+.eoy-search__group-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--eoy-space-2);
+  align-items: baseline;
+  margin: 0;
+  padding: var(--eoy-space-1) var(--eoy-space-3);
+}
+
+.eoy-search__group-name {
+  font-size: var(--eoy-text-xs);
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--eoy-accent-strong);
+}
+
+.eoy-search__group-hint {
+  font-size: var(--eoy-text-xs);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-search__option {
+  display: block;
+  padding: var(--eoy-space-2) var(--eoy-space-3);
+  border-radius: var(--eoy-radius);
+  cursor: pointer;
+}
+
+.eoy-search__option:hover,
+.eoy-search__option[aria-selected='true'] {
+  background: var(--eoy-accent-soft);
+}
+
+.eoy-search__option-name {
+  display: block;
+  font-size: var(--eoy-text-sm);
+  font-weight: 650;
+}
+
+.eoy-search__option-meta {
+  display: block;
+  font-size: var(--eoy-text-xs);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-search__status {
+  margin: 0;
+  padding: var(--eoy-space-2) var(--eoy-space-3);
+  border-top: 1px solid var(--eoy-border);
+  font-size: var(--eoy-text-sm);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-search__status--warn {
+  color: var(--eoy-error-text);
+}
+
+/* ---- filters -------------------------------------------------------------- */
+
+.eoy-filters {
+  position: absolute;
+  top: calc(100% + var(--eoy-space-2));
+  right: var(--eoy-space-3);
+  z-index: 40;
+  width: min(20rem, calc(100vw - 1.5rem));
+  padding: var(--eoy-space-3);
+  border: 1px solid var(--eoy-border);
+  border-radius: var(--eoy-radius-lg);
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  box-shadow: var(--eoy-panel-shadow);
+  max-height: min(70vh, 30rem);
+  overflow-y: auto;
+}
+
+.eoy-filters__heading {
+  margin: 0 0 var(--eoy-space-2);
+  font-size: var(--eoy-text-md);
+  font-weight: 750;
+}
+
+.eoy-filters__group {
+  margin: 0 0 var(--eoy-space-3);
+  padding: 0;
+  border: 0;
+}
+
+.eoy-filters__legend {
+  padding: 0;
+  margin-bottom: var(--eoy-space-1);
+  font-size: var(--eoy-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--eoy-text-muted);
+}
+
+.eoy-filters__option {
+  display: flex;
+  align-items: center;
+  gap: var(--eoy-space-2);
+  min-height: var(--eoy-tap);
+  padding: 0 var(--eoy-space-2);
+  border-radius: var(--eoy-radius);
+  font-size: var(--eoy-text-sm);
+  cursor: pointer;
+}
+
+.eoy-filters__option:hover:not(:has(:disabled)) {
+  background: var(--eoy-accent-soft);
+}
+
+.eoy-filters__option:has(:checked) {
+  font-weight: 700;
+}
+
+.eoy-filters__option:has(:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.eoy-filters__label {
+  flex: 1 1 auto;
+}
+
+.eoy-filters__count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--eoy-text-muted);
+  font-size: var(--eoy-text-xs);
+}
+
+.eoy-filters__actions {
+  display: flex;
+  gap: var(--eoy-space-2);
+  justify-content: flex-end;
+  border-top: 1px solid var(--eoy-border);
+  padding-top: var(--eoy-space-3);
+}
+
+/* ---- stage: map + list ---------------------------------------------------- */
+
+.eoy-stage {
+  position: relative;
+  min-height: 0;
+  background: var(--eoy-border);
+}
+
+.eoy-map {
+  position: absolute;
+  inset: 0;
+}
+
+.eoy-map[hidden] {
+  display: none;
+}
+
+.eoy-map:focus-visible {
+  outline-offset: -3px;
+}
+
+.eoy-list {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--eoy-bg);
+}
+
+.eoy-list[hidden] {
+  display: none;
+}
+
+.eoy-list__head {
+  flex: none;
+  padding: var(--eoy-space-3) var(--eoy-space-3) var(--eoy-space-2);
+  border-bottom: 1px solid var(--eoy-border);
+  background: var(--eoy-surface);
+}
+
+.eoy-list__title {
+  margin: 0;
+  font-size: var(--eoy-text-md);
+  font-weight: 750;
+}
+
+.eoy-list__note {
+  margin: var(--eoy-space-1) 0 0;
+  font-size: var(--eoy-text-xs);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-list__items {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0;
+  padding: 0 0 var(--eoy-space-4);
+  list-style: none;
+}
+
+.eoy-row {
+  display: block;
+  width: 100%;
+  min-height: var(--eoy-tap);
+  padding: var(--eoy-space-3);
+  border: 0;
+  border-bottom: 1px solid var(--eoy-border);
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.eoy-row:hover {
+  background: var(--eoy-accent-soft);
+}
+
+.eoy-row[aria-current='true'] {
+  background: var(--eoy-accent-soft);
+  box-shadow: inset 4px 0 0 var(--eoy-accent);
+}
+
+.eoy-row__top {
+  display: flex;
+  gap: var(--eoy-space-2);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.eoy-row__name {
+  margin: 0;
+  font-size: var(--eoy-text-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.eoy-row__distance {
+  flex: none;
+  font-size: var(--eoy-text-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--eoy-accent-strong);
+}
+
+.eoy-row__address {
+  margin: var(--eoy-space-1) 0 0;
+  font-size: var(--eoy-text-sm);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-row__type {
+  margin: var(--eoy-space-1) 0 0;
+  font-size: var(--eoy-text-xs);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-list__more {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: var(--eoy-space-3);
+  border-top: 1px solid var(--eoy-border);
+  background: var(--eoy-surface);
+}
+
+/* ---- overlays: state, legend, bottom bar ---------------------------------- */
+
+.eoy-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--eoy-space-4);
+  background: var(--eoy-bg);
+}
+
+.eoy-card {
+  width: min(28rem, 100%);
+  padding: var(--eoy-space-4);
+  border: 1px solid var(--eoy-border);
+  border-radius: var(--eoy-radius-lg);
+  background: var(--eoy-surface);
+  box-shadow: var(--eoy-shadow);
+  text-align: left;
+}
+
+.eoy-card__title {
+  margin: 0 0 var(--eoy-space-2);
+  font-size: var(--eoy-text-xl);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.eoy-card__body {
+  margin: 0 0 var(--eoy-space-3);
+  font-size: var(--eoy-text-sm);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-card--error {
+  border-color: var(--eoy-error-border);
+  background: var(--eoy-error-bg);
+  color: var(--eoy-error-text);
+}
+
+.eoy-skeleton {
+  width: 100%;
+  height: 0.75rem;
+  margin-bottom: var(--eoy-space-2);
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--eoy-border) 25%, var(--eoy-bg) 50%, var(--eoy-border) 75%);
+  background-size: 200% 100%;
+  animation: eoy-shimmer 1.4s linear infinite;
+}
+
+@keyframes eoy-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+/* Non-blocking messages. Never a modal wall: the app stays usable. */
+/* A tiny, non-blocking status chip. The basemap and the dataset are two different network
+   requests and can fail independently; neither may cover the other. */
+.eoy-map-chip {
+  position: absolute;
+  top: var(--eoy-space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 21;
+  margin: 0;
+  padding: var(--eoy-space-1) var(--eoy-space-3);
+  border: 1px solid var(--eoy-border);
+  border-radius: 999px;
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  box-shadow: var(--eoy-shadow);
+  font-size: var(--eoy-text-xs);
+  font-weight: 650;
+}
+
+.eoy-notice {
+  position: absolute;
+  /* Sits BELOW the user chip, which occupies the same corner. Two stacked messages must
+     never overlap, whichever two happen to be on screen. */
+  top: 4rem;
+  left: var(--eoy-space-3);
+  right: var(--eoy-space-3);
+  z-index: 25;
+  display: flex;
+  gap: var(--eoy-space-2);
+  align-items: flex-start;
+  padding: var(--eoy-space-2) var(--eoy-space-3);
+  border: 1px solid var(--eoy-warm-mid);
+  border-left: 4px solid var(--eoy-accent);
+  border-radius: var(--eoy-radius);
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  box-shadow: var(--eoy-shadow);
+  font-size: var(--eoy-text-sm);
+}
+
+.eoy-notice__text {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+/* A tiny user-position readout. The georeferenced dot is a MapLibre Marker;
+   this is its accessible, always-visible companion. */
+.eoy-user-chip {
+  position: absolute;
+  top: var(--eoy-space-3);
+  left: var(--eoy-space-3);
+  z-index: 24;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoy-space-2);
+  padding: var(--eoy-space-1) var(--eoy-space-2);
+  border: 1px solid var(--eoy-border);
+  border-radius: 999px;
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  box-shadow: var(--eoy-shadow);
+  font-size: var(--eoy-text-xs);
+  font-weight: 650;
+}
+
+.eoy-user-chip__dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  flex: none;
+  border-radius: 50%;
+  background: #1d4ed8;
+  border: 2px solid var(--eoy-surface);
+  box-shadow: 0 0 0 2px #1d4ed8;
+}
+
+/* The DOM element MapLibre positions for the user-position marker. */
+.eoy-user-marker {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: #1d4ed8;
+  border: 3px solid var(--eoy-surface);
+  box-shadow: 0 0 0 2px #0b2a6b;
+}
+
+.eoy-legend {
+  position: absolute;
+  right: var(--eoy-space-3);
+  bottom: calc(var(--eoy-tap) + var(--eoy-space-5) + var(--eoy-space-2));
+  z-index: 22;
+  max-width: 14rem;
+  padding: var(--eoy-space-2);
+  border: 1px solid var(--eoy-border);
+  border-radius: var(--eoy-radius);
+  background: rgb(255 255 255 / 92%);
+  color: var(--eoy-text);
+  box-shadow: var(--eoy-shadow);
+  font-size: var(--eoy-text-xs);
+}
+
+.eoy-legend__summary {
+  min-height: 1.75rem;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: var(--eoy-radius);
+}
+
+.eoy-legend__list {
+  margin: var(--eoy-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--eoy-border);
+  padding-top: var(--eoy-space-2);
+}
+
+.eoy-legend__note {
+  margin: var(--eoy-space-2) 0 0;
+  padding-top: var(--eoy-space-2);
+  border-top: 1px solid var(--eoy-border);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-legend-item {
+  display: grid;
+  grid-template-columns: 1.1rem 1fr;
+  gap: var(--eoy-space-2);
+  align-items: center;
+  padding: 2px 0;
+  color: var(--eoy-text);
+}
+
+.eoy-legend-item__shape {
+  display: block;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+}
+
+.eoy-legend-item__label {
+  font-weight: 700;
+}
+
+.eoy-legend-item__shape-text {
+  display: block;
+  color: var(--eoy-text-muted);
+}
+
+/* Type is never colour alone: the swatch repeats the map's real shape. */
+.eoy-legend-item__shape--disc {
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: 0.175rem;
+  background: var(--eoy-type-sidewalk);
+}
+
+.eoy-legend-item__shape--rimmed-disc {
+  width: 0.85rem;
+  height: 0.85rem;
+  background: var(--eoy-type-roadway);
+  border: 2px solid #1b1b1f;
+}
+
+.eoy-legend-item__shape--ring {
+  background: var(--eoy-type-both);
+  box-shadow: 0 0 0 3px #f5f3ff, 0 0 0 4px #6d28d9;
+}
+
+.eoy-bottom-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 26;
+  display: flex;
+  gap: var(--eoy-space-2);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--eoy-space-2) var(--eoy-space-3);
+  /* Safe-area: this app is used one-handed, with the home indicator right there. */
+  padding-bottom: calc(var(--eoy-space-2) + var(--eoy-safe-bottom));
+  border-top: 1px solid var(--eoy-border);
+  background: var(--eoy-surface);
+  box-shadow: 0 -2px 12px rgb(23 23 26 / 8%);
+}
+
+.eoy-bottom-bar__count {
+  margin: 0;
+  font-size: var(--eoy-text-sm);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.eoy-segmented {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--eoy-border);
+  border-radius: var(--eoy-radius);
+  background: var(--eoy-bg);
+}
+
+.eoy-segmented__option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoy-space-1);
+  min-height: calc(var(--eoy-tap) - 8px);
+  padding: 0 var(--eoy-space-3);
+  border: 0;
+  border-radius: calc(var(--eoy-radius) - 2px);
+  background: transparent;
+  color: var(--eoy-text);
+  font: inherit;
+  font-size: var(--eoy-text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.eoy-segmented__option[aria-checked='true'] {
+  background: var(--eoy-warm-dark);
+  color: var(--eoy-text-inverse);
+}
+
+/* ---- detail sheet --------------------------------------------------------- */
+
+.eoy-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  max-height: min(78%, 34rem);
+  padding: var(--eoy-space-2) var(--eoy-space-4) var(--eoy-space-4);
+  padding-bottom: calc(var(--eoy-space-4) + var(--eoy-safe-bottom));
+  border-top: 1px solid var(--eoy-border);
+  border-radius: var(--eoy-radius-lg) var(--eoy-radius-lg) 0 0;
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  box-shadow: 0 -8px 32px rgb(23 23 26 / 22%);
+}
+
+/* The drag affordance. Decorative: the sheet is opened and closed with real
+   buttons, never by dragging, so a pointer-free user is never stuck. */
+.eoy-sheet__grip {
+  flex: none;
+  width: 2.5rem;
+  height: 0.3rem;
+  margin: 0 auto var(--eoy-space-2);
+  border-radius: 999px;
+  background: var(--eoy-border-strong);
+}
+
+.eoy-sheet__head {
+  display: flex;
+  gap: var(--eoy-space-2);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.eoy-sheet__title {
+  margin: 0;
+  font-size: var(--eoy-text-xl);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.eoy-sheet__legal {
+  margin: var(--eoy-space-1) 0 0;
+  font-size: var(--eoy-text-xs);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-sheet__close {
+  flex: none;
+  min-width: var(--eoy-tap);
+  min-height: var(--eoy-tap);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--eoy-border);
+  border-radius: var(--eoy-radius);
+  background: var(--eoy-surface);
+  color: var(--eoy-text);
+  cursor: pointer;
+}
+
+.eoy-sheet__body {
+  margin: var(--eoy-space-3) 0 0;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.eoy-sheet__address {
+  margin: 0;
+  font-size: var(--eoy-text-md);
+}
+
+.eoy-sheet__section-title {
+  margin: var(--eoy-space-3) 0 var(--eoy-space-1);
+  font-size: var(--eoy-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--eoy-text-muted);
+}
+
+.eoy-type-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--eoy-space-1);
+}
+
+.eoy-type-list__item {
+  display: grid;
+  grid-template-columns: 1.1rem 1fr;
+  gap: var(--eoy-space-2);
+  align-items: start;
+  font-size: var(--eoy-text-sm);
+}
+
+.eoy-type-list__check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 4px;
+  background: var(--eoy-accent);
+  color: var(--eoy-accent-contrast);
+}
+
+.eoy-type-list__shape {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--eoy-text-xs);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-sheet__note {
+  margin: var(--eoy-space-2) 0 0;
+  padding: var(--eoy-space-2);
+  border-left: 3px solid var(--eoy-accent);
+  border-radius: 0 var(--eoy-radius) var(--eoy-radius) 0;
+  background: var(--eoy-accent-soft);
+  font-size: var(--eoy-text-sm);
+}
+
+.eoy-sheet__meta {
+  margin: var(--eoy-space-1) 0 0;
+  font-size: var(--eoy-text-sm);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-sheet__actions {
+  display: flex;
+  gap: var(--eoy-space-2);
+  padding-top: var(--eoy-space-3);
+}
+
+.eoy-sheet__attribution {
+  margin: var(--eoy-space-3) 0 0;
+  padding-top: var(--eoy-space-2);
+  border-top: 1px solid var(--eoy-border);
+  font-size: var(--eoy-text-xs);
+  color: var(--eoy-text-muted);
+}
+
+.eoy-sheet__attribution a {
+  color: inherit;
+}
+
+/* ---- wider layouts: same product, more room ------------------------------- */
+
+@media (min-width: 45rem) {
+  .eoy-sheet {
+    top: calc(var(--eoy-header-height) + var(--eoy-space-2));
+    left: auto;
+    right: var(--eoy-space-3);
+    bottom: calc(var(--eoy-tap) + var(--eoy-space-5));
+    width: min(24rem, 40vw);
+    max-height: none;
+    border: 1px solid var(--eoy-border);
+    border-radius: var(--eoy-radius-lg);
+  }
+
+  .eoy-legend {
+    right: auto;
+    left: var(--eoy-space-3);
+    bottom: calc(var(--eoy-tap) + var(--eoy-space-5) + var(--eoy-space-2));
+  }
+
+}

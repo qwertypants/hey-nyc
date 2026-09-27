@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: A location is wrong, missing or mis-mapped
+    url: https://github.com/eat-outside-nyc/eat-outside-nyc/issues/new?template=data_report.yml&labels=data
+    about: Bad coordinates, a missing establishment, a wrong address. This is the most useful kind of report and has its own template.
+  - name: Security vulnerability
+    url: https://github.com/eat-outside-nyc/eat-outside-nyc/security/advisories/new
+    about: Report privately. Do not open a public issue.
+  - name: The site has stopped updating
+    url: https://github.com/eat-outside-nyc/eat-outside-nyc/actions/workflows/refresh-data.yml
+    about: Check whether the daily workflow ran, and whether the schedule was disabled after 60 days of repository inactivity.

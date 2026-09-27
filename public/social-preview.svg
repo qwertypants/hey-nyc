@@ -1,0 +1,96 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 1200 630"
+  width="1200"
+  height="630"
+  role="img"
+  aria-label="Eat Outside NYC — a map of New York City outdoor dining, built from NYC Open Data"
+>
+  <title>Eat Outside NYC</title>
+  <!--
+    The design source of truth for public/social-preview.png, which is what index.html's
+    `og:image` points at. The PNG in the repo is a faithful 1200x630 raster of this file; the
+    geometry below matches it mark for mark, so edit here and re-rasterise.
+
+    `qlmanage -t -s 1200` is NOT the tool: it renders the SVG at roughly 2x and clips, so the
+    PNG was produced with a real rasteriser (Pillow, system Arial) at exactly 1200x630. Any
+    browser's "Export PNG", Inkscape or `rsvg-convert` would serve equally well.
+
+    Colours are the tokens from src/index.css and the dining-type palette from
+    src/map/style.ts. No record count is printed: a hard-coded "2,000 places" in a marketing
+    image goes stale on the next refresh, and nothing else in this project prints a number it
+    has not read out of metadata.json.
+  -->
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1b1f" />
+      <stop offset="1" stop-color="#2a1a12" />
+    </linearGradient>
+    <radialGradient id="warm" cx="1000" cy="150" r="460" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c2410c" stop-opacity="0.34" />
+      <stop offset="1" stop-color="#c2410c" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#ground)" />
+  <rect width="1200" height="630" fill="url(#warm)" />
+
+  <!-- A faint street grid, because the subject is a map. -->
+  <g stroke="#342824" stroke-width="2">
+    <path d="M0 470 H1200" />
+    <path d="M0 520 H1200" />
+    <path d="M180 0 V630" />
+    <path d="M300 0 V630" />
+    <path d="M905 0 V630" />
+    <path d="M1010 0 V630" />
+  </g>
+
+  <!--
+    The three dining-type marks, in the map's own three shapes and colours, in the right
+    margin so they never crowd the text: `both` is an annulus (ring + disc), `roadway` a
+    large disc with a heavy dark rim, `sidewalk` a small solid disc.
+  -->
+  <g>
+    <circle cx="1000" cy="262" r="58" fill="none" stroke="#6d28d9" stroke-width="11" />
+    <circle cx="1000" cy="262" r="22" fill="#6d28d9" />
+
+    <circle cx="1120" cy="250" r="27" fill="#b45309" stroke="#1b1b1f" stroke-width="8" />
+
+    <circle cx="945" cy="400" r="16" fill="#1d4ed8" />
+
+    <circle cx="1105" cy="400" r="34" fill="none" stroke="#6d28d9" stroke-width="7" />
+    <circle cx="1105" cy="400" r="12" fill="#6d28d9" />
+  </g>
+
+  <!-- Wordmark. -->
+  <g font-family="system-ui, -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif">
+    <circle cx="106" cy="150" r="20" fill="#c2410c" />
+    <circle cx="106" cy="150" r="34" fill="none" stroke="#605c5a" stroke-width="3" />
+
+    <text x="168" y="175" fill="#f7f7f5" font-size="74" font-weight="900" letter-spacing="-2">
+      Eat Outside NYC
+    </text>
+
+    <text x="100" y="300" fill="#f2e3d8" font-size="42" font-weight="400">
+      Where can I eat outside around here?
+    </text>
+    <text x="100" y="358" fill="#c9bdc4" font-size="27" font-weight="400">
+      Every place in the city with a Dining Out NYC licence.
+    </text>
+  </g>
+
+  <!-- Provenance. Both credits are obligations, and a social card is a page that ships. -->
+  <g
+    font-family="system-ui, -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif"
+    fill="#a99a90"
+    font-size="20"
+  >
+    <text x="100" y="548">
+      Data from NYC Open Data — “Dining Out NYC Locations” (fpeh-f7ci), NYC Department of
+      Transportation.
+    </text>
+    <text x="100" y="582">
+      Basemap © OpenFreeMap · © OpenMapTiles · Data © OpenStreetMap contributors.
+    </text>
+  </g>
+</svg>

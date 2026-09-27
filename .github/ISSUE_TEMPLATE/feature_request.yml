@@ -1,0 +1,67 @@
+name: Feature request
+description: Propose a change to the app, the pipeline, or the documentation.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most feature requests get closed, and it is worth being upfront about why.
+        The project has a deliberately narrow scope: a factual, map-first,
+        static, account-free view of one public dataset. If your idea needs any
+        of the following, it belongs in a different project built on the
+        published GeoJSON — which is a plain static file, precisely so that it
+        can be:
+
+        - ratings, reviews, scores or a "best of" ranking
+        - opening hours, menus, prices, cuisines or photos
+        - accounts, sign-in, saved places or a server
+        - AI-generated summaries, recommendations or natural-language search
+        - a proprietary, scraped or API-keyed data source
+
+        Requests that keep those boundaries are welcome, and the ones that add
+        capability without adding a dependency are the best kind.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation, not the solution. "I want to know which boroughs are densest" is a problem; "add a heatmap" is a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Where would the data come from?
+      description: If this needs a field the source dataset does not have, say which one. That is usually the end of the conversation, and it is much better to find out here.
+  - type: dropdown
+    id: type
+    attributes:
+      label: Which part does this touch?
+      options:
+        - Map and interaction
+        - Filtering, search or sorting
+        - The detail view
+        - Accessibility
+        - The data pipeline or a new data layer
+        - Documentation
+        - Build, CI or deployment
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+      description: Including workarounds in other apps. If you have already found another way to answer your own question, the answer may be better than the feature.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Boundaries
+      options:
+        - label: This can be done with data already in the source dataset, or with data the user supplies.
+        - label: This does not add a runtime npm dependency.
+        - label: This does not add a server, an account system, or anything that tracks a user.

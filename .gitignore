@@ -1,0 +1,25 @@
+node_modules/
+dist/
+coverage/
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Raw source snapshots are reproducible via `npm run data:fetch`.
+# Keep the directory, ignore the payload (see docs/data-pipeline.md).
+data/raw/*.json
+!data/raw/.gitkeep
+
+# Test/build scratch
+.vitest/
+test-results/

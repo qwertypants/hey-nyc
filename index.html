@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#1b1b1f" />
+    <title>Eat Outside NYC — outdoor dining, mapped</title>
+    <meta
+      name="description"
+      content="A map of New York City food establishments with a Dining Out NYC licence for sidewalk or roadway dining. Built from NYC Open Data."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Eat Outside NYC" />
+    <meta
+      property="og:description"
+      content="Find places in NYC where you can legally eat outside. Built from NYC Open Data."
+    />
+    <meta property="og:image" content="./social-preview.png" />
+
+    <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      Eat Outside NYC needs JavaScript. The underlying data is public: NYC Open Data
+      dataset <code>fpeh-f7ci</code> (Dining Out NYC Locations, NYC DOT).
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

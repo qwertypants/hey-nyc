@@ -1,0 +1,27 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 32 32"
+  width="32"
+  height="32"
+  role="img"
+  aria-label="Eat Outside NYC"
+>
+  <title>Eat Outside NYC</title>
+  <!--
+    The key for the map's visual language, drawn with the exact palette and the exact three
+    shapes from src/map/style.ts, so a tab icon and a pin are recognisably the same system.
+    A light ground, because that is the basemap (`positron`) these marks sit on, and because a
+    pale mark on a pale tab is the one thing that would make the icon useless.
+  -->
+  <rect width="32" height="32" rx="8" fill="#f7f7f5" />
+
+  <!-- `both`: an annulus — a disc inside a ring. -->
+  <circle cx="16" cy="15" r="9.4" fill="none" stroke="#6d28d9" stroke-width="3" />
+  <circle cx="16" cy="15" r="3.6" fill="#6d28d9" />
+
+  <!-- `sidewalk`: a small solid disc. -->
+  <circle cx="7.4" cy="24.4" r="2.7" fill="#1d4ed8" />
+
+  <!-- `roadway`: a large disc with a heavy dark rim. -->
+  <circle cx="24.6" cy="24.4" r="3.4" fill="#b45309" stroke="#1b1b1f" stroke-width="1.7" />
+</svg>

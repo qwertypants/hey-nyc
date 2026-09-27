@@ -1,0 +1,104 @@
+name: ci
+
+# The pull-request gate. Two independent jobs, no `needs:` between them, so they
+# run in parallel and a data regression does not wait behind a slow npm install.
+#
+# Deliberately NOT triggered on push to main: deploy.yml already runs lint, the
+# unit tests and the build on main, and refresh-data.yml runs
+# validate_data.py --strict before it will commit. Running the same checks twice
+# on every main commit buys nothing and doubles the Actions minutes.
+on:
+  pull_request:
+  workflow_dispatch:
+
+# Superseded PR runs are wasted minutes. A new push to the same PR cancels the
+# older run, and a new run on the same PR cancels an in-progress run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20.19
+        uses: actions/setup-node@v4
+        with:
+          # Satisfies engines.node ">=20.19" in package.json.
+          node-version: '20.19.0'
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - name: Lint
+        run: |
+          set -euo pipefail
+          npm run lint
+
+      - name: Typecheck
+        # Redundant with `npm run build`, which runs `tsc --noEmit` first, but
+        # it costs about a second and gives a failure its own named step, so a
+        # type error is never reported as "build failed".
+        run: |
+          set -euo pipefail
+          npm run typecheck
+
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          npm test
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          npm run build
+
+  data:
+    name: Validate and test the pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt
+
+      - name: Validate the published artifacts
+        # --strict: upstream schema drift is a failure here, not a warning. A PR
+        # that changes src/types/location.ts without regenerating the artifacts,
+        # or that edits public/data/cafes.geojson by hand, fails at this step.
+        # No network: validate_data.py reads the committed artifacts only.
+        run: |
+          set -euo pipefail
+          python3 scripts/validate_data.py --strict
+
+      - name: Pipeline unit tests
+        # tests/python works on inline fixtures and tmp directories and never
+        # opens a socket - the one "URL" in test_fetch_data.py is
+        # https://example.invalid behind a monkeypatched urlopen. Runs in well
+        # under a second, so the job is cheap.
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/python -q

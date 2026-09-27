@@ -1,0 +1,9 @@
+# The pipeline deliberately uses only the Python standard library.
+#
+# The source is a plain Socrata v2.1 JSON endpoint and the outputs are plain
+# GeoJSON, so `urllib.request` + `json` cover fetching, cleaning and validation.
+# Adding pandas or requests here would buy nothing and would make the GitHub
+# Action slower and the fork setup heavier.
+#
+# Test-only dependency, installed by CI / contributors:
+pytest>=8.3.4

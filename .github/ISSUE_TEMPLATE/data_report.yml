@@ -1,0 +1,69 @@
+name: Data report
+description: A location is wrong, missing, or mapped to the wrong place.
+labels: ["data"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. This is the most useful report anyone can file on this project.
+
+        Two things to know before you fill this in:
+
+        - The map shows **licences**, not businesses. A location is absent from
+          the map if its row was rejected by the pipeline, and every rejection is
+          listed with a reason in `data/processed/report.json`.
+        - Coordinates come from **NYC DOT's geocoder**, not from us. If a pin is
+          in the wrong place, we do not know whether the address or the
+          coordinate is the wrong one, and we will not silently "correct" it.
+  - type: input
+    id: name
+    attributes:
+      label: Establishment name
+      description: As it appears on the sign, or as it appears on the map.
+      placeholder: LUCALI
+    validations:
+      required: true
+  - type: input
+    id: address
+    attributes:
+      label: Street address
+      placeholder: 575 HENRY STREET
+    validations:
+      required: true
+  - type: input
+    id: borough
+    attributes:
+      label: Borough
+      placeholder: Brooklyn
+  - type: dropdown
+    id: licence
+    attributes:
+      label: What is on the map?
+      options:
+        - The location is missing entirely
+        - Present, but pinned in the wrong place
+        - Present, but the address is wrong
+        - Present, but the name is wrong
+        - Present, but it shows the wrong licence type (sidewalk / roadway / both)
+        - Present and correct, but it is closed or there is no outdoor seating
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to see, and what is actually there?
+      description: Include the nearest cross streets if the pin is misplaced.
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Where did you see this?
+      description: A link to the business, or a screenshot. If you compared against the NYC Open Data record, a link to that row is the single most helpful thing you can add.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: A few things that would help
+      options:
+        - label: It is between December and March and the licence is roadway, so it may simply be seasonal.
+        - label: I checked the "Data updated" date on the map and the snapshot is recent.
