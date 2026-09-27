@@ -280,7 +280,9 @@ def location_id(legal_name: str, street: str) -> str:
     """`eoy-` + 12 hex chars of sha1("legalName|street").
 
     Depends on neither Socrata row order nor `:id`, so two refreshes that
-    differ only in row order produce byte-identical output (docs §5).
+    differ only in row order produce byte-identical output (docs §5). The id
+    is part of the frozen contract, so changing this recipe is a contract
+    change: see docs/adr/0001-freeze-the-location-schema.md
     """
     digest = hashlib.sha1(f"{legal_name}|{street}".encode("utf-8")).hexdigest()
     return ID_PREFIX + digest[:ID_HEX_LENGTH]
@@ -303,7 +305,10 @@ def content_hash(features: Iterable[dict]) -> str:
     """sha256 over the canonical serialisation of the id-sorted feature list.
 
     The hash never covers itself: it is stored in metadata.json and report.json,
-    neither of which is an input.
+    neither of which is an input. That is what makes the daily refresh able to
+    tell a real change from a re-run, so do not widen it.
+
+    See docs/adr/0002-hash-features-never-the-timestamp.md
     """
     ordered = sorted(features, key=lambda f: f.get("id", ""))
     return hashlib.sha256(canonical_json(ordered).encode("utf-8")).hexdigest()

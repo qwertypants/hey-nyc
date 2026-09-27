@@ -41,6 +41,17 @@ tests/data-load.test.ts:
 tests/python/test_geojson.py:
 -->
 
+### Decision
+
+- [ ] Not applicable, or: I read `docs/decisions.md` first, and either this needs
+      no new ADR or it comes with one (`docs/adr/NNNN-*.md`, added to the index
+      table in the same pull request)
+
+A new ADR is required if this adds a runtime or pipeline dependency, alters the
+frozen contract, touches `content_hash()` or the id recipe, adds a second
+feature kind or a second NYC Open Data layer, changes the basemap or the
+geocoder, or relaxes anything under "What not to add".
+
 ### If this changes the data
 
 - [ ] I did not hand-edit `public/data/` or `data/processed/`. I changed

@@ -4,6 +4,9 @@
  *
  * Derived from live inspection of NYC Open Data dataset fpeh-f7ci
  * ("Dining Out NYC Locations", NYC DOT). See docs/data-dictionary.md.
+ *
+ * Why this is a contract rather than a convenience, and what was tried instead:
+ * docs/adr/0001-freeze-the-location-schema.md
  */
 
 /** Outdoor dining license type. `both` is DERIVED, never present in the source. */

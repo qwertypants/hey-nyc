@@ -16,6 +16,7 @@ to make a change that looks harmless and is not.
 - [Tests](#tests)
 - [Data-change etiquette](#data-change-etiquette)
 - [What not to add](#what-not-to-add)
+- [Decisions](#decisions)
 - [Pull request process](#pull-request-process)
 - [Commit messages](#commit-messages)
 - [Reporting a problem instead of fixing it](#reporting-a-problem-instead-of-fixing-it)
@@ -125,12 +126,13 @@ The rules the tooling actually enforces, so you do not have to guess:
   `console.log` is not.
 - **Type imports must use `import type`.** Enforced by
   `@typescript-eslint/consistent-type-imports`.
-- **Prettier** for formatting: `npm run format`, or `npm run format:check` to see
-  what would change.
 - **`tsc --noEmit` must be clean**, with no `any` escapes, no `@ts-ignore`, and no
   non-null assertion on a value you have not checked.
 
 Beyond what the tools enforce:
+
+- **No automated formatter.** Match the surrounding file by hand. `npm run lint`
+  and `tsc --noEmit` are the only automated style gates.
 
 - **Comments explain why, not what.** The pipeline modules are commented
   heavily and almost none of it restates the code. If a line needs a comment
@@ -149,7 +151,7 @@ Beyond what the tools enforce:
 
 ## Tests
 
-There are 213 TypeScript tests and 212 Python tests. Both suites run in
+There are 457 TypeScript tests and 212 Python tests. Both suites run in
 well under a second, so there is no excuse for skipping one.
 
 - **Every behaviour change needs a test.** Not "the existing tests still pass" —
@@ -232,6 +234,30 @@ make it worse, and they are not welcome:
 If you want to build one of those, build it as your own project on top of the
 published GeoJSON. The artifact is a plain static file precisely so that is
 possible.
+
+## Decisions
+
+Some of the rules above exist because of a decision, and the decision is
+recorded separately in [`docs/adr/`](adr/) with the alternatives that were
+rejected and, where there was one, the measurement that rejected them. The
+index — read it before you change anything — is
+[`decisions.md`](decisions.md).
+
+| Decision | Why the rule above exists |
+| --- | --- |
+| [0001 — Freeze the location schema](adr/0001-freeze-the-location-schema.md) | The frozen contract, and why the schema is written down twice on purpose |
+| [0002 — Hash the features, never the timestamp](adr/0002-hash-features-never-the-timestamp.md) | Why `content_hash()` is not to be touched, and why `git diff` is not the change detector |
+| [0003 — A keyless basemap and three runtime dependencies](adr/0003-keyless-basemap-three-runtime-deps.md) | OpenFreeMap, the three dependencies, the standard-library pipeline, and the whole "what not to add" list |
+| [0004 — Record decisions as ADRs](adr/0004-record-decisions-as-adrs.md) | Why this section exists |
+
+**Write an ADR before you write the code** if your change adds a runtime or
+pipeline dependency, alters the contract, touches `content_hash()` or the id
+recipe, adds a second feature kind or a second data layer, changes the basemap
+or the geocoder, or relaxes anything in "What not to add". The trigger list and
+the template are in [`decisions.md`](decisions.md).
+
+Everything else is an issue or an ordinary pull request. A decision record that
+includes every bug fix is one nobody reads.
 
 ## Pull request process
 
