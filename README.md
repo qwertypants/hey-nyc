@@ -396,7 +396,7 @@ Read [`docs/contributing.md`](docs/contributing.md) first. The short version:
 
 - `src/types/location.ts` and `scripts/` are a **frozen contract**. They change
   together, or not at all.
-- Every behavioural change needs a test. There are 213 TypeScript tests and 212
+- Every behavioural change needs a test. There are 457 TypeScript tests and 212
   Python tests; match them.
 - Do not add ratings, hours, menus, prices, cuisine or photos. They are not in
   the source dataset, and inferring them turns a factual map into a guess.
@@ -404,6 +404,9 @@ Read [`docs/contributing.md`](docs/contributing.md) first. The short version:
   key-free on purpose.
 - A pull request that changes the data pipeline needs a before/after
   `python3 scripts/inspect_data.py` in the description.
+- The rules above exist because of recorded decisions. Read
+  [`docs/decisions.md`](docs/decisions.md) — and add an ADR if your change is
+  the kind that has one.
 
 Issues: use the templates in `.github/ISSUE_TEMPLATE/`. A data report about a
 specific location is the single most useful thing a user can file.
