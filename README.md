@@ -20,10 +20,19 @@ from the repository root without any configuration. Keep the file under about
   <img src="docs/screenshot.png" alt="Placeholder — see the HTML comment above. The Eat Outside NYC map, centred on Manhattan, with a sidewalk-dining detail panel open." width="900" />
 </p>
 
-**Live demo:** <https://YOUR-USERNAME.github.io/eat-outside-nyc/>
-<!-- Replace the placeholder above with the real Pages URL once the repository
-     is published. The Pages URL for a project site is always
-     https://<owner>.github.io/<repo>/ -->
+<p align="center">
+  <a href="https://qwertypants.github.io/hey-nyc/"><strong>Open the live map →</strong></a>
+</p>
+
+**Live site:** <https://qwertypants.github.io/hey-nyc/> — static, no install, no
+account, no tracking.
+
+<!-- The Pages URL for a project site is always
+     https://<owner>.github.io/<repo>/, and .github/workflows/deploy.yml
+     derives the matching VITE_BASE_PATH from the repository name at build
+     time. So a fork needs this one line changed and nothing else. Note the
+     repository is `hey-nyc` while the app is called Eat Outside NYC — see
+     "Deployment" for what that means for a fork. -->
 
 ## Contents
 
@@ -142,6 +151,77 @@ against it, and the TypeScript loader validates at runtime. Neither side can
 drift without CI failing. See
 [`docs/contributing.md`](docs/contributing.md) for the rules that keep it frozen.
 
+**4. Monochrome chrome, and a measured palette.** The interface is black on
+white, in Uber's design language: full-pill controls, an 8px grid,
+whisper-soft shadows, no gradients. This is a functional choice, not a
+preference. The basemap underneath is a colourful raster and the dining type is
+encoded in three hues, so a coloured chrome would be a fourth competing signal
+fighting both — and black on white is also 21:1, the top of the contrast scale,
+against a 4.5:1 floor. The only colour in the interface is the data.
+
+That last part is enforced rather than asserted. `src/lib/contrast.ts` is the
+WCAG 2.2 maths and `tests/contrast.test.ts` reads the real tokens out of
+`src/index.css` and the real data colours out of `src/map/style.ts`, then holds
+every text pair to 4.5:1, every meaningful boundary to 3:1, and the primary pair
+to AAA — in the light scheme, the dark scheme, and both again under
+`prefers-contrast: more`. Change a hex value to something prettier and CI tells
+you the ratio you actually achieved, against the threshold it had to clear.
+
+Two consequences worth knowing before you touch the CSS:
+
+- **The focus indicator is two rings, not one colour.** The app is half black
+  and half white, so a single focus colour cannot serve it: the blue this
+  started with scored 6.70:1 on white and 2.56:1 on the black header, which is
+  effectively invisible. The replacement is an inner paper ring plus an outer
+  ink ring, and the test asserts that one of the two clears 3:1 on every
+  surface the app paints.
+- **The swatch edge flips with the colour scheme; the swatch fill does not.** A
+  legend that disagrees with the map is a worse failure than a dim swatch, and
+  the type is always named in words beside every swatch anyway.
+
+`src/index.css` is the single stylesheet and its header documents the
+accessibility contract it implements.
+
+### Accessibility
+
+The app targets **WCAG 2.2 Level AA**, which is the technical bar behind the
+ADA obligations a site like this carries in the United States. Conformance is a
+property of the whole thing, so it is spread across the code rather than bolted
+on:
+
+Three suites enforce it, and they are kept separate on purpose because they catch different
+classes of defect. Contrast maths will never notice a button with no name; axe will never
+notice a focus ring that is 2.56:1 against the header it sits on.
+
+| Suite | What it holds | Why it cannot be merged into another |
+| --- | --- | --- |
+| `tests/contrast.test.ts` | Every colour pair against its WCAG threshold, in four schemes. Reads the tokens, not copies of them. | Needs the maths, not the DOM. |
+| `tests/axe.test.tsx` | WAI-ARIA rules, accessible names, heading order, landmarks — in ten UI states. | Needs a rendered tree. |
+| `tests/layout.test.ts` | Target size (2.5.8), text spacing (1.4.12), reflow (1.4.10), and the user-preference overrides. | Needs the declarations; jsdom has no layout engine to measure. |
+
+Both stylesheet suites read `src/index.css` through one shared reader,
+`tests/helpers/stylesheet.ts`, so they cannot drift into disagreeing about what the CSS says.
+
+The rest is spread across the code rather than bolted on:
+
+| Area | Where |
+| --- | --- |
+| Focus management, trapping, restoration | `src/hooks/useFocusTrap.ts` |
+| Focus-not-obscured (2.4.11) | `src/index.css`, via `scroll-margin` on rows |
+| Screen-reader semantics for the map's alternative | `src/components/LocationList.tsx` |
+| Status announcements (4.1.3) | `src/App.tsx`, `src/components/SearchBox.tsx` |
+| Keyboard model for the search combobox | `src/components/SearchBox.tsx` |
+| Keyboard model for the view radiogroup | `src/components/LocationList.tsx` |
+| Reduced motion, forced colours, enhanced contrast | `src/index.css` |
+
+### The limit worth stating
+
+`tests/layout.test.ts` reads declarations, not rendered boxes, because jsdom has no layout
+engine. So it can prove *this control was given at least 24px of min-height* but not *the text
+fits inside it*. A real browser audit — axe-core via Playwright, say — is the missing piece, and
+it is the one thing this setup cannot substitute for. Until it exists, treat the layout
+assertions as "the declaration is safe", which is the part under the author's control.
+
 ## Local development
 
 **Prerequisites**
@@ -187,7 +267,8 @@ how to point it somewhere else.
 | --- | --- |
 | `npm run lint` | ESLint over `src`, `tests` and the config files. |
 | `npm run typecheck` | `tsc --noEmit`. |
-| `npm test` | Vitest: 213 tests over the loader, filters, search and URL state. |
+| `npm test` | Vitest: 457 tests over the loader, filters, search, URL state, colour contrast, layout resilience and axe. |
+| `npm run test:a11y` | The three accessibility suites on their own: contrast, layout, axe. |
 | `npm run test:data` | `pytest tests/python` — 212 tests, no network. |
 | `npm run build` | Typecheck, then a production build into `dist/`. |
 | `npm run preview` | Serve the production build locally. |
@@ -228,10 +309,15 @@ snapshot under `data/raw/` is git-ignored on purpose; it is reproducible with
 
 ## Deployment
 
-GitHub Pages, from `main`, via `deploy.yml`. It builds and publishes on a push to
+GitHub Pages, from `main`, via `deploy.yml`. The site is at
+**<https://qwertypants.github.io/hey-nyc/>**. It builds and publishes on a push to
 `main`, and also fires when `refresh-data` succeeds — a commit pushed by the bot
 does not trigger a `push` event, so the `workflow_run` trigger is what publishes
 data-only changes.
+
+The workflow runs `lint`, `npm test` and `build` before it uploads anything, so a
+contrast ratio that drifts out of WCAG range or an axe violation introduced in the
+same push fails the build and never reaches the site.
 
 To deploy a fork:
 
@@ -243,6 +329,14 @@ That is the whole setup. There are no secrets to configure. The workflow derives
 `VITE_BASE_PATH` from the repository name at run time, so a fork named
 `eat-outside-nyc-fork` deploys correctly at
 `https://<you>.github.io/eat-outside-nyc-fork/` without anybody editing a file.
+
+**The repository is `hey-nyc`; the app is called Eat Outside NYC.** That mismatch
+is real and deliberate-looking but undocumented in the source, so: the deployed
+`<title>`, the `og:title` and the on-page wordmark all say *Eat Outside NYC* while
+the URL says `hey-nyc`. Nothing breaks — `VITE_BASE_PATH` is derived from the
+repository name at build time, so the subpath is always right — but if the
+repository is ever renamed, `base` changes with it and the asset URLs follow
+automatically. Only the two links in this README are hand-written.
 
 If you serve the build from a different subpath yourself, set `VITE_BASE_PATH`
 before building:
