@@ -62,16 +62,67 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           # persist-credentials is unnecessary here: this job never pushes.
 
-      # Enables the Pages site (idempotent if it is already on) and tells the
-      # platform we are about to publish. `enablement: true` is what lets a
-      # first-time fork publish without anyone visiting Settings first; drop the
-      # flag if your repository's Pages source is already "GitHub Actions" and
-      # you would rather this step never be able to change repository settings.
+      # A Pages site is a persistent REPOSITORY-LEVEL resource. It is not created
+      # by this workflow, and - verified, see below - it cannot be.
+      #
+      # `actions/configure-pages` takes an `enablement` input that reads like it
+      # creates the site for you. It does not. That input calls
+      # `POST /repos/{owner}/{repo}/pages` with this job's GITHUB_TOKEN, and the
+      # Actions integration is not permitted to call it. On a repo with no Pages
+      # site the step dies with:
+      #
+      #     Create Pages site failed. Error: Resource not accessible by
+      #     integration - https://docs.github.com/rest/pages/pages#create-a-...
+      #
+      # "Resource not accessible by integration" is the error you get when the
+      # TOKEN lacks the scope, so it reads like a permissions bug in this file
+      # and sends you auditing `permissions:` - which are already correct and
+      # byte-for-byte match the official Pages starter workflow. A PAT with
+      # `repo` scope gets past it and then reports the real reason plainly
+      # ("Your current plan does not support GitHub Pages for this repository"),
+      # which is how the two distinct causes get confused for each other.
+      #
+      # So: `enablement` is not passed, and the one-time setup is done by hand.
+      # It has to be - a PAT with `repo` scope would work, but minting a
+      # broad-scope credential and storing it in the repo to avoid clicking
+      # "Pages > Build and deployment > GitHub Actions" once is a bad trade. The
+      # site is a durable resource that does not rot; nothing re-creates it
+      # because nothing needs to.
+      #
+      # The guard below exists purely to convert the opaque 403 above into an
+      # error that names its own fix. It cannot make the missing site appear.
+      - name: Require an existing Pages site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # GET is permitted for the integration token; only create is not, so a
+          # 404 here means "no site yet" rather than "not allowed to look".
+          if ! gh api "repos/${GITHUB_REPOSITORY}/pages" --silent 2>/dev/null; then
+            cat >&2 <<'MSG'
+          ::error::GitHub Pages is not enabled for this repository, so there is
+          nothing to deploy to. This is a one-time setup step that no workflow
+          can do for you: the GITHUB_TOKEN is not permitted to create a Pages
+          site, which is why the `enablement` input on actions/configure-pages
+          does not help.
+
+          Enable it once, as an admin:
+            gh api --method POST repos/<owner>/<repo>/pages -f build_type=workflow
+          or Settings > Pages > Build and deployment > Source: GitHub Actions.
+
+          If it is already enabled, the site may still be mid-build; re-run this
+          workflow. Note that a private repository needs a paid plan before
+          GitHub Pages will serve it at all.
+          MSG
+            exit 1
+          fi
+          echo "Pages site present for ${GITHUB_REPOSITORY}."
+
+      # Reads the Pages config and publishes the platform's own base path. Safe
+      # to run on an existing site; it changes no repository settings.
       - name: Configure GitHub Pages
         id: pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       # ---------------------------------------------------------------------
       # Base path for repository-subpath hosting.
