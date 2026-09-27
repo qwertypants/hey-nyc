@@ -20,6 +20,10 @@ body:
 
         Requests that keep those boundaries are welcome, and the ones that add
         capability without adding a dependency are the best kind.
+
+        Before you file: the boundaries above are recorded as decisions, with the
+        reasoning, in `docs/decisions.md` — worth a read, so you can tell a
+        settled question from an open one.
   - type: textarea
     id: problem
     attributes:
