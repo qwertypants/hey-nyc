@@ -24,6 +24,7 @@ function queryOf(state: UrlState): string {
 describe('parseUrlState / serializeUrlState round trip', () => {
   it('round-trips every field', () => {
     const state: UrlState = {
+      mode: 'eat',
       view: VIEW,
       filters: { type: 'roadway', borough: 'Staten Island' },
       selectedId: ID,
@@ -45,11 +46,19 @@ describe('parseUrlState / serializeUrlState round trip', () => {
 
   it('omits defaults so the shared link stays short', () => {
     expect(serializeUrlState(parseUrlState(''))).toBe('');
-    expect(serializeUrlState({ view: DEFAULT_VIEW, filters: { type: 'all', borough: 'all' }, selectedId: null })).toBe('');
+    expect(
+      serializeUrlState({
+        mode: 'eat',
+        view: DEFAULT_VIEW,
+        filters: { type: 'all', borough: 'all' },
+        selectedId: null,
+      }),
+    ).toBe('');
   });
 
   it('emits the keys in a fixed order', () => {
     const keys = serializeUrlState({
+      mode: 'eat',
       view: VIEW,
       filters: { type: 'sidewalk', borough: 'Queens' },
       selectedId: ID,
@@ -177,6 +186,9 @@ describe('malformed, hostile and absurd input falls back safely', () => {
   it('does not throw when serialising garbage state', () => {
     expect(() =>
       serializeUrlState({
+        // A missing `mode` as well as garbage everywhere else: the serialiser is documented
+        // as total, and a hostile state object is one of the ways it is asked to be.
+        mode: undefined as unknown as UrlState['mode'],
         view: null as unknown as MapView,
         filters: null as unknown as UrlState['filters'],
         selectedId: 99 as unknown as string,
@@ -184,6 +196,7 @@ describe('malformed, hostile and absurd input falls back safely', () => {
     ).not.toThrow();
     expect(
       serializeUrlState({
+        mode: 'not-a-feature' as unknown as UrlState['mode'],
         view: null as unknown as MapView,
         filters: { type: 'nope' as never, borough: 'nope' as never },
         selectedId: null,

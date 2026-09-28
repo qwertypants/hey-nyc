@@ -11,6 +11,13 @@
  * assertions, and exposes the three things only the map can do — become ready, report a new
  * extent, and report a feature click.
  *
+ * THE FAKE MAP IS OPT-IN. `getMap()` returns `null` by default, which is the branch
+ * `UserLocationMarker` correctly does nothing in — and the branch every component test in
+ * this repository has always been stuck on, because turning it on everywhere would make the
+ * real `maplibre-gl` load and try to build a `Marker` against a double. A test that is
+ * ABOUT a feature being mounted on the map passes `withMap: true` and gets a `FakeMap`,
+ * which is where layers, sources and listeners can actually be counted.
+ *
  * Public surface:
  *   FakeController, FakeControllerCalls
  *   createFakeController(options?): FakeController
@@ -31,6 +38,8 @@ import { DEFAULT_VIEW, clampView } from '../../src/lib/urlState';
 // MapLibre for its value, and this helper is imported by tests that must never reach the map
 // engine. They are the same number — `FOCUS_ZOOM` is defined as exactly this.
 import { LABEL_STYLE } from '../../src/map/style';
+import { createFakeMap } from './fakeMap';
+import type { FakeMap } from './fakeMap';
 import { MIDTOWN_BOUNDS } from './fixtures';
 
 export interface FakeControllerCalls {
@@ -59,6 +68,11 @@ export interface FakeController extends MapController {
   selectFromMap(id: string | null): void;
   /** True once `destroy()` has run. */
   readonly isDestroyed: () => boolean;
+  /**
+   * The `FakeMap` behind `getMap()`, or `null` when this controller has none. Counting
+   * layers and listeners across a feature switch is only possible through here.
+   */
+  readonly map: () => FakeMap | null;
 }
 
 export interface CreateFakeControllerOptions {
@@ -66,13 +80,19 @@ export interface CreateFakeControllerOptions {
   readonly autoReady?: boolean;
   /** Initial visible extent. Defaults to the Midtown box. */
   readonly bounds?: MapBounds;
+  /**
+   * Give `getMap()` a real `FakeMap` to return. Off by default — see the module header for
+   * why, and `tests/feature-switching.test.tsx` for the test that needs it on.
+   */
+  readonly withMap?: boolean;
 }
 
 export function createFakeController(
   options: CreateMapControllerOptions,
   settings: CreateFakeControllerOptions = {},
 ): FakeController {
-  const { autoReady = true } = settings;
+  const { autoReady = true, withMap = false } = settings;
+  const map = withMap ? createFakeMap() : null;
   const listeners = new Set<() => void>();
   let destroyed = false;
   let readyResolve: (controller: MapController) => void = () => undefined;
@@ -128,7 +148,7 @@ export function createFakeController(
     initial: options,
 
     whenReady: () => ready,
-    getMap: () => null,
+    getMap: () => (map === null ? null : map.map),
     getState: () => state,
     subscribe(listener: () => void) {
       listeners.add(listener);
@@ -140,10 +160,11 @@ export function createFakeController(
     setFilters,
     setSelectedId,
 
-    focusOn(id: string) {
-      calls.focusOn(id);
-      if (destroyed) return false;
-      if (!options.dataset.coords.has(id)) return false;
+    focusOn(id: string, position: { readonly lat: number; readonly lng: number } | null) {
+      calls.focusOn(id, position);
+      // The controller has no dataset: a `null` position means the ACTIVE feature has no such
+      // item, which is how a selection left over from the other feature is refused.
+      if (destroyed || position === null) return false;
       setSelectedId(id);
       // Mirrors src/map/controller.ts: FOCUS_ZOOM at least, the map's maxZoom at most.
       flyTo({ zoom: Math.min(Math.max(state.view.zoom, LABEL_STYLE.minZoom), 16) });
@@ -156,8 +177,8 @@ export function createFakeController(
       calls.fitTo(bounds);
     },
 
-    fitToResults() {
-      calls.fitToResults();
+    fitToResults(bounds: MapBounds | null) {
+      calls.fitToResults(bounds);
     },
 
     getBounds: () => state.bounds,
@@ -173,6 +194,8 @@ export function createFakeController(
     },
 
     isDestroyed: () => destroyed,
+
+    map: () => map,
 
     ready(bounds?: MapBounds) {
       if (destroyed) return;

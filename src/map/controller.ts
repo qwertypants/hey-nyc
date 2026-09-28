@@ -1,8 +1,8 @@
 /**
  * INTEGRATION NOTES (src/map/controller.ts)
  *
- * The imperative map handle Stream C uses. Everything that touches MapLibre lives here or
- * in `createMap.ts` / `layers.ts`; nothing in `src/lib` or `src/data` imports MapLibre.
+ * The imperative map handle. Everything that touches MapLibre lives here or in
+ * `createMap.ts` / `style.ts`; nothing in `src/lib` or `src/data` imports MapLibre.
  *
  * ONE MapLibre instance per container, created once, never held in React state. React
  * holds this handle in a ref and re-renders from `subscribe`/`getState`, which is the
@@ -10,14 +10,30 @@
  * loop, and no camera value is ever a source of React churn.
  *
  *   const controller = useMemo(
- *     () => createMapController({ container, dataset, initialView, initialFilters }),
- *     [container, dataset],
+ *     () => createMapController({ container, initialView, initialFilters }),
+ *     [container],
  *   );
  *   useEffect(() => () => controller.destroy(), [controller]);
  *   useSyncExternalStore(controller.subscribe, controller.getState);
  *
  * Calling `createMapController` twice for the same container returns the SAME controller
  * rather than a second WebGL context, so React 19 StrictMode's double effect is safe.
+ *
+ * THE CONTROLLER KNOWS NOTHING ABOUT FEATURES.
+ *
+ * It creates the map, holds the camera, reports the visible extent, and holds the two
+ * values the URL mirrors — `filters` and `selectedId`. It does NOT draw anything and it
+ * never sees a dataset: the source and the layers belong to whichever `MapFeature` is
+ * mounted (see `src/features/registry.ts`), and the shell swaps that mount onto THIS map
+ * when the visitor switches feature. That is what makes a switch a layer swap rather than
+ * a teardown, and it is why the factory takes a container and a camera rather than a
+ * dataset.
+ *
+ * `filters` and `selectedId` are therefore MIRRORS of state the feature owns: the shell
+ * reads them to write the URL and to render, and pushes changes back down through
+ * `FeatureView.state`. They live here rather than in React state because they arrive with
+ * the map's own transitions (a click, a `moveend`), and a second copy in React is a copy
+ * that can disagree with the first.
  *
  * Public surface:
  *   type MapStatus, type MapControllerState, type MapController, type CreateMapControllerOptions
@@ -27,18 +43,16 @@
  */
 
 import type { Map as MapLibreMap } from 'maplibre-gl';
-import type { LoadedDataset } from '../data/load';
 import type { MapBounds } from '../lib/bounds';
 import type { Filters } from '../lib/filters';
-import { applyFilters } from '../lib/filters';
 import { clampView, sameView, DEFAULT_VIEW } from '../lib/urlState';
 import type { MapView } from '../lib/urlState';
-import { fitViewFor, NYC_DATA_BOUNDS } from '../lib/viewport';
+import { fitViewFor } from '../lib/viewport';
 import { createMap } from './createMap';
-import { addLocationLayers, attachMapInteractions, readBounds } from './layers';
-import type { LocationLayers } from './layers';
+import { readBounds } from './extent';
 import { DEFAULT_CAMERA_DURATION_MS, motionFor } from './motion';
 import { LABEL_STYLE } from './style';
+import type { LatLngLike } from '../features/registry';
 
 export type MapStatus = 'loading' | 'ready' | 'error';
 
@@ -46,7 +60,9 @@ export interface MapControllerState {
   readonly status: MapStatus;
   /** Current camera, rounded for URL round-tripping. */
   readonly view: MapView;
+  /** Mirror of the active feature's filters, so the URL can be written from one place. */
   readonly filters: Filters;
+  /** Mirror of the active feature's selection. */
   readonly selectedId: string | null;
   /** Visible extent, or `null` before the first render completes. */
   readonly bounds: MapBounds | null;
@@ -61,33 +77,56 @@ export interface FlyOptions {
   /**
    * MapLibre's "override the user's reduced-motion setting" flag, not "this move matters".
    * `motionFor` overrules it while the preference is on, so the only thing it can still express
-   * is an intent MapLibre already has by default; the field stays because `MapController` is the
-   * boundary `src/App.tsx` calls through.
+   * is an intent MapLibre already has by default; the field stays because `MapController` is
+   * the boundary `src/App.tsx` calls through.
    */
   readonly essential?: boolean;
 }
 
 export interface MapController {
-  /** Resolves once the style is loaded and the layers are on. Rejects on a style error. */
+  /**
+   * Resolves once the style is loaded, which is the first moment a feature may draw.
+   * Rejects on a style error.
+   */
   whenReady(): Promise<MapController>;
-  /** The MapLibre instance, for escape hatches. `null` before creation. */
+  /**
+   * The MapLibre instance — the one place the UI layer gets at the engine. `null` before
+   * creation, and the SAME instance for the life of the container: the shell hands it to
+   * every feature it mounts, so switching feature is a layer swap on one map rather than
+   * a second WebGL context.
+   */
   getMap(): MapLibreMap | null;
   /** Stable snapshot for `useSyncExternalStore`; do not mutate. */
   getState(): MapControllerState;
   subscribe(listener: () => void): () => void;
 
-  /** Applies the filters to the map, to `state.filters`, and to `state.view` (unchanged). */
+  /** Records the active feature's filters. The feature applies them to its own layers. */
   setFilters(filters: Filters): void;
-  /** Highlights without moving the camera — what a map click does. */
+  /** Records the active feature's selection. The feature draws the highlight. */
   setSelectedId(id: string | null): void;
-  /** Selects AND flies to the location. What tapping a list row does. */
-  focusOn(id: string): boolean;
+  /**
+   * Selects AND flies. What tapping a list row or a search result does.
+   *
+   * The position is a parameter rather than a lookup because the controller has no
+   * dataset: only the active feature can turn an id into a place, so the shell resolves it
+   * (`FeatureView.positionOf`) and hands it over. `null` means the active feature has no
+   * such item, and nothing happens — which is also how a selection left over from the
+   * other feature is refused rather than flown to.
+   */
+  focusOn(id: string, position: LatLngLike | null): boolean;
 
   flyTo(view: Partial<MapView>, options?: FlyOptions): void;
   /** Fits the visible extent, with padding for the sheet UI Stream C draws over the map. */
   fitTo(bounds: MapBounds, options?: FlyOptions & { readonly padding?: number }): void;
-  /** Frames every location matching the current filters. */
-  fitToResults(options?: FlyOptions & { readonly padding?: number }): void;
+  /**
+   * Frames everything the active feature matches, to the extent the feature computed. The
+   * same reason `focusOn` takes a position; `null` (nothing to frame) is a no-op rather
+   * than a camera move to nowhere.
+   */
+  fitToResults(
+    bounds: MapBounds | null,
+    options?: FlyOptions & { readonly padding?: number },
+  ): void;
   getBounds(): MapBounds | null;
   /** Call after the container resizes (sheet open/close, orientation change). */
   resize(): void;
@@ -96,7 +135,6 @@ export interface MapController {
 
 export interface CreateMapControllerOptions {
   readonly container: HTMLElement;
-  readonly dataset: LoadedDataset;
   readonly initialView?: MapView;
   readonly initialFilters?: Filters;
   readonly initialSelectedId?: string | null;
@@ -110,29 +148,26 @@ export function getMapController(container: HTMLElement): MapController | undefi
   return controllers.get(container);
 }
 
-export function createMapController(
-  options: CreateMapControllerOptions,
-): MapController {
+export function createMapController(options: CreateMapControllerOptions): MapController {
   const existing = controllers.get(options.container);
   if (existing !== undefined) return existing;
 
-  const { container, dataset } = options;
+  const { container } = options;
   // `parseUrlState` returns exactly DEFAULT_VIEW when a link carries no usable view
   // parameters, so "equals DEFAULT_VIEW" is a faithful proxy for "the link did not ask for
-  // a view". In that case frame the data for the viewport we actually have: a fixed
+  // a view". In that case frame the city for the viewport we actually have: a fixed
   // constant frames a 390px phone with New Jersey and letterboxes a 1440px desktop.
   // A link that does specify a view is honoured verbatim.
   const requestedView = clampView(options.initialView);
   const initialView = sameView(requestedView, DEFAULT_VIEW)
-    ? fitViewFor(NYC_DATA_BOUNDS, container.clientWidth, container.clientHeight)
+    ? fitViewFor(undefined, container.clientWidth, container.clientHeight)
     : requestedView;
   const initialFilters = options.initialFilters ?? { type: 'all', borough: 'all' };
   const initialSelectedId = options.initialSelectedId ?? null;
 
   const listeners = new Set<() => void>();
   let map: MapLibreMap | null = null;
-  let layers: LocationLayers | null = null;
-  let detachInteractions: (() => void) | null = null;
+  let detachBounds: (() => void) | null = null;
   let destroyed = false;
   let readyResolve: (controller: MapController) => void = () => undefined;
   let readyReject: (error: Error) => void = () => undefined;
@@ -171,35 +206,45 @@ export function createMapController(
 
   function setSelectedId(id: string | null): void {
     if (destroyed) return;
-    layers?.setSelectedId(id);
     publish({ selectedId: id });
   }
 
   function setFilters(filters: Filters): void {
     if (destroyed) return;
-    layers?.setFilters(filters);
     publish({ filters });
   }
 
+  /**
+   * Style load is the ONLY moment at which a feature may draw — `addLayer` before a style
+   * exists throws in MapLibre. So this is where the controller declares itself ready, and
+   * the shell's mount effect, keyed on `state.status`, is what puts a feature on the map.
+   *
+   * Only the EXTENT is watched here. Clicks, hover and cluster expansion belong to
+   * whichever feature is drawing and are attached and detached with it; a click handler
+   * owned by the controller would outlive its layers, and there is no way for the shell to
+   * unbind it on a switch.
+   */
   function handleStyleLoad(readyMap: MapLibreMap): void {
-    if (destroyed || layers !== null) return;
-    layers = addLocationLayers(readyMap, dataset.collection, initialFilters);
-    if (initialSelectedId !== null) layers.setSelectedId(initialSelectedId);
-    detachInteractions = attachMapInteractions(readyMap, {
-      onBoundsChange: (bounds) => {
-        publish({ bounds, view: currentView(readyMap) });
-      },
-      onSelect: (id) => {
-        setSelectedId(id);
-      },
-      onClearSelection: () => {
-        setSelectedId(null);
-      },
-      onError: reportError,
-      isActive: () => !destroyed,
-    });
+    if (destroyed || detachBounds !== null) return;
 
-    publish({ status: 'ready', bounds: readBounds(readyMap), view: currentView(readyMap), error: null });
+    const reportBounds = (): void => {
+      if (destroyed) return;
+      publish({ bounds: readBounds(readyMap), view: currentView(readyMap) });
+    };
+    const subscriptions = [
+      readyMap.on('moveend', reportBounds),
+      readyMap.on('resize', reportBounds),
+    ];
+    detachBounds = (): void => {
+      for (const subscription of subscriptions) subscription.unsubscribe();
+    };
+
+    publish({
+      status: 'ready',
+      bounds: readBounds(readyMap),
+      view: currentView(readyMap),
+      error: null,
+    });
     readyResolve(controller);
   }
 
@@ -221,10 +266,8 @@ export function createMapController(
 
     setSelectedId,
 
-    focusOn(id: string): boolean {
-      if (destroyed) return false;
-      const position = dataset.coords.get(id);
-      if (position === undefined) return false;
+    focusOn(id: string, position: LatLngLike | null): boolean {
+      if (destroyed || position === null) return false;
       setSelectedId(id);
       // Clamped to the map's own maxZoom so a link or a very wide sheet cannot break easeTo.
       const zoom = Math.min(Math.max(state.view.zoom, FOCUS_ZOOM), 16);
@@ -268,25 +311,12 @@ export function createMapController(
       );
     },
 
-    fitToResults(fitOptions?: FlyOptions & { readonly padding?: number }): void {
-      if (destroyed) return;
-      const matches = applyFilters(dataset.locations, state.filters);
-      if (matches.length === 0) return;
-
-      let west = Number.POSITIVE_INFINITY;
-      let south = Number.POSITIVE_INFINITY;
-      let east = Number.NEGATIVE_INFINITY;
-      let north = Number.NEGATIVE_INFINITY;
-      for (const location of matches) {
-        const position = dataset.coords.get(location.id);
-        if (position === undefined) continue;
-        west = Math.min(west, position.lng);
-        south = Math.min(south, position.lat);
-        east = Math.max(east, position.lng);
-        north = Math.max(north, position.lat);
-      }
-      if (!(north > south) || !(east > west)) return;
-      controller.fitTo({ west, south, east, north }, fitOptions);
+    fitToResults(
+      bounds: MapBounds | null,
+      fitOptions?: FlyOptions & { readonly padding?: number },
+    ): void {
+      if (destroyed || bounds === null) return;
+      controller.fitTo(bounds, fitOptions);
     },
 
     getBounds: () => (map === null ? null : readBounds(map)),
@@ -299,9 +329,8 @@ export function createMapController(
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
-      detachInteractions?.();
-      detachInteractions = null;
-      layers = null;
+      detachBounds?.();
+      detachBounds = null;
       listeners.clear();
       controllers.delete(container);
       const active = map;

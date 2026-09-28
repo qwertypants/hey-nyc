@@ -35,11 +35,11 @@
  */
 
 import type { JSX } from 'react';
-import type { BoroughFilter, Filters, TypeFilter } from '../lib/filters';
-import { countFor, isFiltered } from '../lib/filters';
-import { describeType } from '../map/style';
-import { BOROUGHS, DINING_TYPES } from '../types/location';
-import type { LocationProperties } from '../types/location';
+import type { BoroughFilter, Filters, TypeFilter } from '../../lib/filters';
+import { countFor, isFiltered } from '../../lib/filters';
+import { describeType } from '../../map/style';
+import { BOROUGHS, DINING_TYPES } from '../../types/location';
+import type { LocationProperties } from '../../types/location';
 
 export interface FilterRailProps {
   readonly locations: readonly LocationProperties[];

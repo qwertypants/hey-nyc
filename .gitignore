@@ -17,8 +17,11 @@ venv/
 
 # Raw source snapshots are reproducible via `npm run data:fetch`.
 # Keep the directory, ignore the payload (see docs/data-pipeline.md).
-data/raw/*.json
+# `**` matters: the walk pipeline nests its snapshots one level deeper
+# (data/raw/walk/*.json, ~9 MB), and `data/raw/*.json` does NOT match those.
+data/raw/**/*.json
 !data/raw/.gitkeep
+!**/.gitkeep
 
 # Test/build scratch
 .vitest/

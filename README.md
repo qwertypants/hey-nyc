@@ -1,6 +1,6 @@
 # Eat Outside NYC
 
-A map of every New York City food establishment that holds a Dining Out NYC licence for sidewalk or roadway dining. No account, no backend, no tracking — a static map and a GeoJSON file, rebuilt from NYC Open Data every morning.
+A map of every New York City food establishment that holds a Dining Out NYC licence for sidewalk or roadway dining, plus a second, quieter map of where the city counts people walking. No account, no backend, no tracking — a static map and a few GeoJSON files, rebuilt from NYC Open Data every morning.
 
 <p align="center">
   <img src="docs/screenshot.png" alt="An illustrated aerial view of New York City, with Manhattan between the Hudson and East rivers and the Brooklyn and Queens bridges to the right, dotted with coloured map pins marking Dining Out NYC licence locations." width="900" />
@@ -24,7 +24,8 @@ account, no tracking.
 
 - [What this is not](#what-this-is-not)
 - [Project purpose](#project-purpose)
-- [Data source](#data-source)
+- [Data sources](#data-sources)
+- [Where NYC Walks](#where-nyc-walks)
 - [Architecture](#architecture)
 - [Local development](#local-development)
 - [Data refresh](#data-refresh)
@@ -47,6 +48,10 @@ Read this before you use the app or judge the dataset.
   server. There is nothing to sign in to and nothing tracking you.
 - **Not AI-generated.** No recommendations, no summaries, no inference. Every
   field on screen came from a single public government dataset.
+- **Not a walking app.** Where NYC Walks does not route, does not recommend a
+  route, does not tell you where to walk, and does not draw a path between
+  anything. It shows counts at the places the city counts, and refuses to guess
+  at the streets in between.
 - **Not a substitute for the city's own record.** If you need to know whether a
   specific licence is currently valid, ask NYC DOT directly.
 
@@ -64,6 +69,12 @@ or borough, and honest about what the data does and does not say.
 The current published snapshot contains **2 000 establishments** across all five
 boroughs — 1 173 sidewalk, 396 roadway, and 431 that hold both.
 
+The same provider, the same licence-free endpoints and the same constraints
+produce the second feature, [Where NYC Walks](#where-nyc-walks) — 114 hand-counted
+pedestrian screenline sites and 4 automated counters. It is a separate question
+about the same city, built from separate datasets and never combined with the
+first one numerically.
+
 Design constraints, all deliberate:
 
 - **Map-first.** The map is the application, not a widget inside a page.
@@ -76,24 +87,83 @@ Design constraints, all deliberate:
 - **Forkable.** One `npm ci` and one `npm run dev`. No API keys, no accounts
   with any third party, no secrets.
 
-## Data source
+## Data sources
 
-**Dining Out NYC Locations** (dataset `fpeh-f7ci`) from
-[NYC Open Data](https://data.cityofnewyork.us/Transportation/Dining-Out-NYC-Locations/fpeh-f7ci),
-provided by the **New York City Department of Transportation (NYC DOT)**.
+Two features, four NYC Open Data datasets, one provider: the **New York City
+Department of Transportation (NYC DOT)**. All are read through the Socrata v2.1
+JSON endpoint: no API key, no registration.
 
-- The city's own row label is a "food service establishment that is participating
-  in the Dining Out NYC program".
-- Published by automated job, daily.
-- Read through the Socrata v2.1 JSON endpoint. No API key, no registration.
-- The full column-by-column breakdown, including the 23 source columns we do not
-  use and the six rows we reject, is in
-  [`docs/data-dictionary.md`](docs/data-dictionary.md).
+| Feature | Dataset | Rows | What a row is |
+| --- | --- | --- | --- |
+| Eat Outside NYC | [`fpeh-f7ci`](https://data.cityofnewyork.us/Transportation/Dining-Out-NYC-Locations/fpeh-f7ci) | 2 437 | one licence |
+| Where NYC Walks | [`cqsj-cfgu`](https://data.cityofnewyork.us/Transportation/Bi-Annual-Pedestrian-Counts/cqsj-cfgu) | 114 | one manual screenline count site |
+| Where NYC Walks | [`ct66-47at`](https://data.cityofnewyork.us/Transportation/Bicycle-and-Pedestrian-Counts/ct66-47at) | 21 269 650 | one automated 15-minute count |
+| Where NYC Walks | [`6up2-gnw8`](https://data.cityofnewyork.us/Transportation/Bicycle-and-Pedestrian-Count-Sensors/6up2-gnw8) | 67 | one sensor |
+
+### Dining Out NYC Locations (`fpeh-f7ci`)
+
+The city's own row label is a "food service establishment that is participating
+in the Dining Out NYC program". Published by automated job, daily. The full
+column-by-column breakdown, including the 23 source columns we do not use and
+the six rows we reject, is in
+[`docs/data-dictionary.md`](docs/data-dictionary.md).
 
 The source publishes **one row per licence**, not one row per business. A
 business with both a sidewalk and a roadway licence appears twice. The pipeline
 merges those pairs into a single `both` entry; that is where the 2 437 source
 rows become 2 000 establishments.
+
+### The pedestrian counts (`cqsj-cfgu`, `ct66-47at`, `6up2-gnw8`)
+
+Same provider, same licence-free endpoints, and a much smaller story: DOT's
+bi-annual screenline program covers **114 locations**, and its automated
+pedestrian counters cover **four physical counters**, two of which have not
+reported in over three months. The methodology, every threshold and the blunt
+list of what the data cannot say are in
+[`docs/where-nyc-walks.md`](docs/where-nyc-walks.md); the measurements behind
+them, with the queries, are in
+[`docs/walk-data-analysis.md`](docs/walk-data-analysis.md), and the decision to
+lead with the screenline program is
+[ADR 0006](docs/adr/0006-lead-with-the-bi-annual-counts-not-the-live-feed.md).
+
+## Where NYC Walks
+
+Eat Outside NYC answers "where can I sit outside". This answers a much smaller
+question: **where does the city actually count people walking, and what did it
+measure there.**
+
+DOT runs two unrelated pedestrian counting programs and this project publishes
+both, side by side, without ever combining their numbers:
+
+| | Bi-annual screenline counts | Automated counters |
+| --- | --- | --- |
+| Locations | **114** | **4** |
+| Measurement | a manual two-hour count, morning / midday / evening | a 15-minute automated count, folded in + out |
+| Cadence | 2–3 discrete surveys a year | a daily batch, hours behind |
+| Span | 2007 → 2026 | 2022 → 2026 |
+| Published as | `historical-locations.geojson`, `historical-patterns.json` | `sensors.geojson`, `latest.json` |
+
+A screenline site publishes its latest survey and its direction of travel since
+the first one — 41 rising, 41 falling, 32 flat, none unclassifiable. A counter
+publishes where its most recent reading sits **in its own recent history at the
+same weekday and time of day**: `quiet`, `typical`, `busy` or `veryBusy`, plus a
+freshness state derived from the age of that reading.
+
+Three things it deliberately does not do:
+
+- **It does not tell you where to walk.** Four counters is four points.
+- **It does not interpolate.** The nearest counter to any screenline site is
+  624 m away and not one pair is co-located. No heat surface, no gradient
+  between dots, no isochrone — those would be pictures of the interpolation.
+- **It does not compare boroughs.** Two counters in the Bronx, one in Brooklyn,
+  one in Manhattan, none in Queens or Staten Island, and DOT's `borough` column
+  in the historical dataset is not a borough column at all (19 of its 114 sites
+  carry a waterway name, and 5 carry a truncated `Staten Isla` — published
+  verbatim, warned about, never repaired).
+
+Both programs are in the same app because they are the same city's pedestrian
+data, not because they are commensurable. A `busy` screenline and a `busy`
+counter are two different words.
 
 ## Architecture
 
@@ -134,7 +204,10 @@ and vector tile requests to the basemap. This is what makes "no accounts" and
 **3. The frozen contract.** `src/types/location.ts` is the schema. The Python
 pipeline writes it, `scripts/validate_data.py` asserts the published artifacts
 against it, and the TypeScript loader validates at runtime. Neither side can
-drift without CI failing. See
+drift without CI failing. The walk artifacts have their own, identical contract
+— `src/types/walk.ts` against `scripts/walk/validate_walk.py` — and the same
+rule applies to both: change a field name, type, allowed value, property order
+or id recipe on both sides in the same pull request. See
 [`docs/contributing.md`](docs/contributing.md) for the rules that keep it frozen.
 
 **4. Monochrome chrome, and a measured palette.** The interface is black on
@@ -278,6 +351,25 @@ New York). It fetches, rebuilds, validates, and then asks one question: did the
 
 You can also trigger it by hand from the Actions tab.
 
+**The walk artifacts have their own workflow**, `refresh-walk-data`, and their
+own reasons:
+
+- It runs **once a day, not every six hours**, because the pedestrian count feed
+  is a daily batch with a multi-hour ingestion lag — it was 7.6 hours behind on
+  `rowsUpdatedAt` and 14.6 hours behind on the newest pedestrian row when it was
+  measured. A six-hourly schedule would re-fetch identical data three times out
+  of four.
+- It caches the raw snapshot between runs, keyed on the pipeline code, so the
+  56-day baseline window is fetched incrementally instead of from scratch — and
+  so a change to the derivation invalidates the cache rather than reusing it.
+- It asks the same question `refresh-data` asks — did the published records
+  change? — using the same `contentHash` comparison, per
+  [ADR 0002](docs/adr/0002-hash-features-never-the-timestamp.md). Unlike the
+  dining artifacts, its counter hash legitimately moves most days, because
+  freshness is a published property and a counter ageing from `fresh` to
+  `offline` is a real change.
+- It commits only. `deploy.yml` remains the only thing that publishes.
+
 **Manual**
 
 ```bash
@@ -286,12 +378,23 @@ npm run data:fetch                   # just download the raw snapshot
 npm run data:inspect                 # profile the raw snapshot, no writes
 npm run data:clean                   # raw snapshot -> public/data
 npm run data:validate -- --strict    # assert artifacts vs the contract
+
+python3 scripts/walk/refresh.py      # the walk pipeline, both fetches then build
+python3 scripts/walk/refresh.py --offline   # rebuild from the raw snapshot, no network
+python3 scripts/walk/history/fetch.py       # just the 114-row screenline snapshot
 ```
 
 If you rebuild the data, commit `public/data/cafes.geojson`,
 `public/data/metadata.json` and `data/processed/report.json` together. The raw
 snapshot under `data/raw/` is git-ignored on purpose; it is reproducible with
 `npm run data:fetch`.
+
+The walk artifacts follow the same rule and the same generated-file status:
+commit everything under `public/data/walk/` and
+`data/processed/walk/report.json` together, and never hand-edit any of them.
+`src/types/walk.ts` is a frozen contract in the same sense as
+`src/types/location.ts` — see
+[`docs/contributing.md`](docs/contributing.md#the-frozen-contract).
 
 ## Deployment
 
@@ -365,6 +468,17 @@ running app, not just by this file.
 This is a requirement of the source, and it is enforced at runtime:
 `metadata.json` carries the attribution string and the app renders it.
 
+The walk layers carry their own, and they are the same obligation from the same
+provider:
+
+> Data from **NYC Open Data** — "Bi-Annual Pedestrian Counts" (`cqsj-cfgu`),
+> "Bicycle and Pedestrian Counts" (`ct66-47at`) and "Bicycle and Pedestrian
+> Count Sensors" (`6up2-gnw8`), provided by the **NYC Department of
+> Transportation**.
+
+`historical-patterns.json` and `latest.json` carry those strings in the artifact
+itself, so the credit travels with the file rather than with the code.
+
 **Basemap.** The map style is
 [OpenFreeMap](https://openfreemap.org)'s `positron`, built on
 [OpenMapTiles](https://www.openmaptiles.org/) from
@@ -388,6 +502,14 @@ Read [`docs/contributing.md`](docs/contributing.md) first. The short version:
   the source dataset, and inferring them turns a factual map into a guess.
 - Do not add a proprietary or scraped data source. This project is MIT and
   key-free on purpose.
+- Never combine the two pedestrian programs. The 114 screenline sites and the 4
+  automated counters are different measurements in different units with no
+  co-located pair; a number that adds one to the other does not exist.
+- Never repair the source's odd values — the truncated `Staten Isla`, the
+  waterway names in `borough`, the three spellings of a survey column. They are
+  published verbatim and counted in the report, because a repair would need a
+  table the city never published. See
+  [`docs/where-nyc-walks.md`](docs/where-nyc-walks.md#the-bi-annual-survey-model).
 - A pull request that changes the data pipeline needs a before/after
   `python3 scripts/inspect_data.py` in the description.
 - The rules above exist because of recorded decisions. Read
@@ -401,6 +523,47 @@ specific location is the single most useful thing a user can file.
 
 This is the section to read before you rely on anything here. The app is honest
 about all of it; this README should be too.
+
+### Where NYC Walks
+
+Stated here because it is the second feature; the full version, with every
+threshold and the reason for it, is
+[`docs/where-nyc-walks.md`](docs/where-nyc-walks.md#limitations).
+
+**It cannot say where to walk.** The automated counter program has ever measured
+four locations and was producing data at one of them. There is no ranking, no
+recommendation and no route — and the "no recommendations" rule in
+[`docs/contributing.md`](docs/contributing.md#what-not-to-add) is a second,
+independent reason.
+
+**It cannot interpolate to unmeasured streets.** The nearest automated counter to
+any screenline site is 624 m away and not one pair is co-located. There is no
+heat surface, no gradient between dots and no "walkability" fill, because each of
+those would be a picture of the interpolation rather than of the data.
+
+**It cannot compare boroughs, and it cannot compare the four counters to each
+other.** Two in the Bronx, one in Brooklyn, one in Manhattan, none in Queens or
+Staten Island, and DOT's `borough` column in the historical dataset carries a
+waterway name for 19 of its 114 sites and a truncated `Staten Isla` for 5 more.
+
+**Its "live" layer is a daily batch, not a stream.** It was 14.6 hours behind the
+newest pedestrian reading when last measured, two of its four counters have not
+reported in over three months, and a third has been publishing rows of nothing
+but zeros for 45 days. Freshness is derived from the age of the newest reading
+and shown as such; the source's own `status` column is `raw` on all 1 505 220
+pedestrian rows and carries no information at all.
+
+**The screenline half is a survey, not a series.** Two or three discrete counts
+a year, with gaps — no September 2019 survey, October 2020 only, and 2024
+counted in June. Nothing between surveys is interpolated, and a null period is a
+period that was never counted.
+
+**The automated layer may be dropped.** If the feed does not recover, four
+counters that mostly say "no recent reading" are worse than no layer, and
+[ADR 0006](docs/adr/0006-lead-with-the-bi-annual-counts-not-the-live-feed.md)
+records that as the expected outcome rather than a failure.
+
+### Eat Outside NYC
 
 **Presence in this dataset means a licence exists — nothing more.** An entry
 here indicates participation in NYC's Dining Out NYC program according to the

@@ -1,18 +1,21 @@
 /**
- * INTEGRATION NOTES (src/map/layers.ts)
+ * INTEGRATION NOTES (src/features/eat/layers.ts)
  *
- * The GeoJSON source, every layer, the filter composition, and map interaction. No DOM
- * markers anywhere: 2 000 locations are drawn as GPU layers, so panning is a repaint, not
- * 2 000 element updates.
+ * The GeoJSON source, every layer, the filter composition, and map interaction. This used
+ * to be `src/map/layers.ts`, where the map CONTROLLER owned it; it belongs to the feature
+ * because a feature owns what is drawn on the map, and the shell swaps it on and off a
+ * single MapLibre instance when the visitor switches feature.
  *
- * Stream C does not import this file — `controller.ts` wraps it. Public surface:
+ * No DOM markers anywhere: 2 000 locations are drawn as GPU layers, so panning is a repaint,
+ * not 2 000 element updates.
+ *
+ * Public surface:
  *   SOURCE_ID, LAYER_IDS
- *   type MapBoundsHandler, type MapInteractionHandlers, type LocationLayers
- *   buildFilterExpression(filters): FilterSpecification
- *   buildSelectionFilter(id: string | null): FilterSpecification
- *   addLocationLayers(map, collection, filters): LocationLayers
- *   readBounds(map): MapBounds | null
- *   attachMapInteractions(map, handlers): () => void
+ *   buildFilterExpression(filters): unknown
+ *   type EatLayers
+ *   addEatLayers(map, collection, filters): EatLayers
+ *   removeEatLayers(map): void
+ *   attachEatInteractions(map, handlers): () => void
  *
  * IDS, verbatim:
  *   source    eoy-locations
@@ -26,25 +29,21 @@
  * Filtering goes through `setFilter` only. Re-adding the source per filter change would
  * re-tile the whole dataset on every tap of a filter button; `setFilter` re-runs
  * supercluster in the worker, which is what it is for.
+ *
+ * THE UNMOUNT IS THE POINT OF THIS FILE EXISTING HERE. `removeEatLayers` is not a
+ * convenience: `MapFeature.unmount` is what the shell calls on a switch and on teardown,
+ * and `tests/feature-switching.test.tsx` switches repeatedly and asserts the layer count
+ * and the listener count do not grow. Every id above is removed in reverse draw order, the
+ * source goes last, and the interaction detach is called.
  */
 
-import type {
-  AddLayerObject,
-  CircleLayerSpecification,
-  ExpressionSpecification,
-  FilterSpecification,
-  GeoJSONSource,
-  Map as MapLibreMap,
-  MapGeoJSONFeature,
-  MapMouseEvent,
-  SymbolLayerSpecification,
-} from 'maplibre-gl';
-import type { LocationCollection } from '../types/location';
-import type { MapBounds } from '../lib/bounds';
-import type { Filters } from '../lib/filters';
-import { DEFAULT_CAMERA_DURATION_MS, motionFor } from './motion';
-import { CLUSTER_STYLE, DINING_TYPE_STYLE_LIST, LABEL_STYLE, SELECTED_STYLE } from './style';
-import type { TypeStyle } from './style';
+import type { LocationCollection } from '../../types/location';
+import type { Filters } from '../../lib/filters';
+import type { MapLibreLike, MapRenderedFeature } from '../registry';
+import { DEFAULT_CAMERA_DURATION_MS, motionFor } from '../../map/motion';
+import { CLUSTER_STYLE, DINING_TYPE_STYLE_LIST, LABEL_STYLE, SELECTED_STYLE } from '../../map/style';
+import type { TypeStyle } from '../../map/style';
+import type { CircleLayerSpec, LayerSpec, SymbolLayerSpec } from './eatMap';
 
 export const SOURCE_ID = 'eoy-locations';
 
@@ -56,6 +55,16 @@ export const LAYER_IDS = {
   labels: 'eoy-point-label',
   selection: 'eoy-selected-point',
 } as const;
+
+/** Every layer id, bottom to top. The one list `removeEatLayers` walks in reverse. */
+const LAYER_ORDER: readonly string[] = [
+  LAYER_IDS.clusters,
+  LAYER_IDS.clusterCount,
+  LAYER_IDS.halo,
+  LAYER_IDS.points,
+  LAYER_IDS.labels,
+  LAYER_IDS.selection,
+];
 
 /** Clusters dissolve above this zoom, so the label layer never fights a bubble. */
 const CLUSTER_MAX_ZOOM = 14;
@@ -75,7 +84,7 @@ const NOTHING_SELECTED: EqualsProperty = ['==', ['get', 'id'], ''];
  *
  * Built from `Filters`, so the URL, the list and the map share one definition.
  */
-export function buildFilterExpression(filters: Filters): FilterSpecification {
+export function buildFilterExpression(filters: Filters): unknown {
   const clauses: EqualsProperty[] = [];
   if (filters.type !== 'all') clauses.push(['==', ['get', 'type'], filters.type]);
   if (filters.borough !== 'all') clauses.push(['==', ['get', 'borough'], filters.borough]);
@@ -84,28 +93,27 @@ export function buildFilterExpression(filters: Filters): FilterSpecification {
   return clauses.length === 1 ? first : ['all', ...clauses];
 }
 
-export function buildSelectionFilter(id: string | null): FilterSpecification {
+export function buildSelectionFilter(id: string | null): unknown {
   return id === null ? NOTHING_SELECTED : (['==', ['get', 'id'], id] as EqualsProperty);
 }
 
 /**
- * `['all', a, b]` for two filter expressions. The style spec types the `all` operator
- * against `boolean | ExpressionSpecification` while `FilterSpecification` also admits the
- * legacy form; every expression this file builds is already expression-form (MapLibre's
- * `isExpressionFilter` treats `['==', ['get', k], v]` as an expression, verified against
- * @maplibre/maplibre-gl-style-spec 5.24), so the widening is safe.
+ * `['all', a, b]` for two filter expressions. `true` is MapLibre's identity for a filter, so
+ * composing with it short-circuits rather than nesting — which keeps a one-dimension filter
+ * a two-element expression instead of a three-element one, and keeps the expressions the
+ * map reports in a `setFilter` call readable.
  */
-function andFilter(a: FilterSpecification, b: FilterSpecification): FilterSpecification {
+function andFilter(a: unknown, b: unknown): unknown {
   if (a === true) return b;
   if (b === true) return a;
-  return ['all', a, b] as unknown as FilterSpecification;
+  return ['all', a, b];
 }
 
 /**
  * Builds `['match', ['get','type'], ...]` from the single vocabulary in `style.ts`, so no
  * colour, radius, stroke or word is written twice anywhere in the codebase.
  */
-function matchByType(pick: (style: TypeStyle) => string | number): ExpressionSpecification {
+function matchByType(pick: (style: TypeStyle) => string | number): readonly unknown[] {
   const args: unknown[] = ['match', ['get', 'type']];
   let fallback: string | number = '';
   for (const style of DINING_TYPE_STYLE_LIST) {
@@ -114,13 +122,13 @@ function matchByType(pick: (style: TypeStyle) => string | number): ExpressionSpe
     args.push(style.type, value);
   }
   args.push(fallback);
-  return args as unknown as ExpressionSpecification;
+  return args;
 }
 
 /** Short type word for the high-zoom label: "Sidewalk", "Roadway", "Both". */
-const TYPE_WORD: ExpressionSpecification = matchByType((style) => style.shortLabel);
+const TYPE_WORD: readonly unknown[] = matchByType((style) => style.shortLabel);
 
-function clusterRadiusExpression(): ExpressionSpecification {
+function clusterRadiusExpression(): readonly unknown[] {
   return [
     'step',
     ['get', 'point_count'],
@@ -131,10 +139,10 @@ function clusterRadiusExpression(): ExpressionSpecification {
     CLUSTER_STYLE.minRadius + 8,
     200,
     CLUSTER_STYLE.maxRadius,
-  ] as unknown as ExpressionSpecification;
+  ];
 }
 
-const CLUSTER_LAYER: CircleLayerSpecification = {
+const CLUSTER_LAYER: Omit<CircleLayerSpec, 'filter'> = {
   id: LAYER_IDS.clusters,
   type: 'circle',
   source: SOURCE_ID,
@@ -147,7 +155,7 @@ const CLUSTER_LAYER: CircleLayerSpecification = {
   },
 };
 
-const CLUSTER_COUNT_LAYER: SymbolLayerSpecification = {
+const CLUSTER_COUNT_LAYER: Omit<SymbolLayerSpec, 'filter'> = {
   id: LAYER_IDS.clusterCount,
   type: 'symbol',
   source: SOURCE_ID,
@@ -168,7 +176,7 @@ const CLUSTER_COUNT_LAYER: SymbolLayerSpecification = {
  * disc in the ring colour drawn UNDER a smaller type-coloured disc. This is the third
  * shape channel: it is what stops type from being colour-only at low zoom.
  */
-const HALO_LAYER: CircleLayerSpecification = {
+const HALO_LAYER: Omit<CircleLayerSpec, 'filter'> = {
   id: LAYER_IDS.halo,
   type: 'circle',
   source: SOURCE_ID,
@@ -179,7 +187,7 @@ const HALO_LAYER: CircleLayerSpecification = {
   },
 };
 
-const POINT_LAYER: CircleLayerSpecification = {
+const POINT_LAYER: Omit<CircleLayerSpec, 'filter'> = {
   id: LAYER_IDS.points,
   type: 'circle',
   source: SOURCE_ID,
@@ -195,13 +203,13 @@ const POINT_LAYER: CircleLayerSpecification = {
  * Text labels from z15.5. A printed legend, a screen reader and a small phone screen all
  * get the type as WORDS here, which is the channel that survives greyscale.
  */
-const LABEL_LAYER: SymbolLayerSpecification = {
+const LABEL_LAYER: Omit<SymbolLayerSpec, 'filter'> = {
   id: LAYER_IDS.labels,
   type: 'symbol',
   source: SOURCE_ID,
   minzoom: LABEL_STYLE.minZoom,
   layout: {
-    'text-field': ['concat', TYPE_WORD, ' · ', ['get', 'name']] as unknown as ExpressionSpecification,
+    'text-field': ['concat', TYPE_WORD, ' · ', ['get', 'name']],
     'text-font': [...LABEL_STYLE.fontStack],
     'text-size': LABEL_STYLE.textSize,
     'text-max-width': LABEL_STYLE.maxWidthEm,
@@ -218,7 +226,7 @@ const LABEL_LAYER: SymbolLayerSpecification = {
   },
 };
 
-const SELECTION_LAYER: CircleLayerSpecification = {
+const SELECTION_LAYER: Omit<CircleLayerSpec, 'filter'> = {
   id: LAYER_IDS.selection,
   type: 'circle',
   source: SOURCE_ID,
@@ -234,41 +242,20 @@ const SELECTION_LAYER: CircleLayerSpecification = {
       SELECTED_STYLE.minRadiusPixels,
       16,
       SELECTED_STYLE.radius,
-    ] as unknown as ExpressionSpecification,
+    ],
     'circle-stroke-color': SELECTED_STYLE.ringColor,
     'circle-stroke-width': SELECTED_STYLE.ringWidth,
   },
 };
 
-const HAS_POINT_COUNT: FilterSpecification = ['has', 'point_count'];
+const HAS_POINT_COUNT = ['has', 'point_count'];
 const IS_TYPE_BOTH: EqualsProperty = ['==', ['get', 'type'], 'both'];
-
-/**
- * `addLayer` takes `AddLayerObject`, a union discriminated on `type`. Spreading a
- * `LayerSpecification` union loses that link, so each layer is spread while it is still
- * concretely a circle or a symbol.
- */
-function circleLayer(
-  spec: CircleLayerSpecification,
-  filter: FilterSpecification,
-): AddLayerObject {
-  const layer: CircleLayerSpecification = { ...spec, filter };
-  return layer;
-}
-
-function symbolLayer(
-  spec: SymbolLayerSpecification,
-  filter: FilterSpecification,
-): AddLayerObject {
-  const layer: SymbolLayerSpecification = { ...spec, filter };
-  return layer;
-}
 
 interface LayerDefinition {
   readonly id: string;
   /** How the shared dining/borough filter composes with this layer's own clause. */
-  readonly filter: (shared: FilterSpecification) => FilterSpecification;
-  readonly build: (filter: FilterSpecification) => AddLayerObject;
+  readonly filter: (shared: unknown) => unknown;
+  readonly build: (filter: unknown) => LayerSpec;
 }
 
 /** Bottom-to-top draw order: halo under point, selection over everything. */
@@ -276,32 +263,32 @@ const LAYER_DEFINITIONS: readonly LayerDefinition[] = [
   {
     id: LAYER_IDS.clusters,
     filter: (shared) => andFilter(HAS_POINT_COUNT, shared),
-    build: (filter) => circleLayer(CLUSTER_LAYER, filter),
+    build: (filter) => ({ ...CLUSTER_LAYER, filter }),
   },
   {
     id: LAYER_IDS.clusterCount,
     filter: (shared) => andFilter(HAS_POINT_COUNT, shared),
-    build: (filter) => symbolLayer(CLUSTER_COUNT_LAYER, filter),
+    build: (filter) => ({ ...CLUSTER_COUNT_LAYER, filter }),
   },
   {
     id: LAYER_IDS.halo,
     filter: (shared) => andFilter(IS_TYPE_BOTH, shared),
-    build: (filter) => circleLayer(HALO_LAYER, filter),
+    build: (filter) => ({ ...HALO_LAYER, filter }),
   },
   {
     id: LAYER_IDS.points,
     filter: (shared) => shared,
-    build: (filter) => circleLayer(POINT_LAYER, filter),
+    build: (filter) => ({ ...POINT_LAYER, filter }),
   },
   {
     id: LAYER_IDS.labels,
     filter: (shared) => shared,
-    build: (filter) => symbolLayer(LABEL_LAYER, filter),
+    build: (filter) => ({ ...LABEL_LAYER, filter }),
   },
   {
     id: LAYER_IDS.selection,
     filter: () => buildSelectionFilter(null),
-    build: (filter) => circleLayer(SELECTION_LAYER, filter),
+    build: (filter) => ({ ...SELECTION_LAYER, filter }),
   },
 ];
 
@@ -309,19 +296,25 @@ const LAYER_DEFINITIONS: readonly LayerDefinition[] = [
  * Owns the live filter/selection state so `setFilters` and `setSelectedId` can recompose
  * both clauses on a layer without either clobbering the other.
  */
-export interface LocationLayers {
+export interface EatLayers {
   setFilters(filters: Filters): void;
   setSelectedId(id: string | null): void;
   readonly filters: Filters;
   readonly selectedId: string | null;
 }
 
-/** Adds the source and every layer. Must run after `style.load`. */
-export function addLocationLayers(
-  map: MapLibreMap,
+/**
+ * Adds the source and every layer. Must run after `style.load` — which is why the shell only
+ * mounts a feature once the controller reports `ready`.
+ *
+ * Idempotent by construction: a source that is already there is left alone and a layer that
+ * is already there is skipped, so calling it twice cannot produce two of anything.
+ */
+export function addEatLayers(
+  map: MapLibreLike,
   collection: LocationCollection,
   filters: Filters,
-): LocationLayers {
+): EatLayers {
   if (map.getSource(SOURCE_ID) === undefined) {
     map.addSource(SOURCE_ID, {
       type: 'geojson',
@@ -363,7 +356,7 @@ export function addLocationLayers(
       if (map.getLayer(LAYER_IDS.selection) === undefined) return;
       map.setFilter(
         LAYER_IDS.selection,
-        andFilter(shared, buildSelectionFilter(currentSelection)),
+        andFilter(buildFilterExpression(currentFilters), buildSelectionFilter(currentSelection)),
       );
     },
     get filters(): Filters {
@@ -375,19 +368,20 @@ export function addLocationLayers(
   };
 }
 
-export function readBounds(map: MapLibreMap): MapBounds {
-  const bounds = map.getBounds();
-  return {
-    west: bounds.getWest(),
-    south: bounds.getSouth(),
-    east: bounds.getEast(),
-    north: bounds.getNorth(),
-  };
+/**
+ * Takes down everything `addEatLayers` and `attachEatInteractions` put up, in reverse order,
+ * and says nothing if it is already down. Reverse order because the selection layer is drawn
+ * over the points layer and MapLibre is order-sensitive about what it may remove.
+ */
+export function removeEatLayers(map: MapLibreLike): void {
+  for (const id of [...LAYER_ORDER].reverse()) {
+    if (map.getLayer(id) === undefined) continue;
+    map.removeLayer(id);
+  }
+  if (map.getSource(SOURCE_ID) !== undefined) map.removeSource(SOURCE_ID);
 }
 
-export interface MapInteractionHandlers {
-  /** Fired on `moveend`, `resize`, and once when the layers first go on. */
-  readonly onBoundsChange: (bounds: MapBounds) => void;
+export interface EatInteractionHandlers {
   readonly onSelect: (id: string) => void;
   readonly onClearSelection: () => void;
   readonly onError?: (error: Error) => void;
@@ -401,23 +395,30 @@ const CLICKABLE_LAYER_IDS: readonly string[] = [
   LAYER_IDS.points,
 ];
 
-function featureCoordinates(feature: MapGeoJSONFeature): [number, number] | null {
+function featureCoordinates(feature: MapRenderedFeature): [number, number] | null {
   const geometry = feature.geometry;
+  if (geometry === undefined || geometry === null) return null;
   if (geometry.type !== 'Point') return null;
-  const lng = geometry.coordinates[0];
-  const lat = geometry.coordinates[1];
+  const coordinates = geometry.coordinates ?? [];
+  const lng = coordinates[0];
+  const lat = coordinates[1];
   if (typeof lng !== 'number' || typeof lat !== 'number') return null;
   return [lng, lat];
 }
 
-function featureString(feature: MapGeoJSONFeature, key: string): string | null {
+function featureString(feature: MapRenderedFeature, key: string): string | null {
   const value = feature.properties?.[key];
   return typeof value === 'string' ? value : null;
 }
 
+/** A GeoJSON source that can answer a cluster's expansion zoom, or one that cannot. */
+interface ClusterSource {
+  getClusterExpansionZoom?: (clusterId: number) => Promise<number>;
+}
+
 async function expandCluster(
-  map: MapLibreMap,
-  feature: MapGeoJSONFeature,
+  map: MapLibreLike,
+  feature: MapRenderedFeature,
   isActive: () => boolean,
   report: (error: Error) => void,
 ): Promise<void> {
@@ -425,13 +426,18 @@ async function expandCluster(
   const coordinates = featureCoordinates(feature);
   if (!Number.isFinite(clusterId) || coordinates === null) return;
 
-  const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
+  // `getSource` is typed `unknown` by the registry, because a feature has no business
+  // caring what kind of source it is. This one method is the exception, and it is
+  // feature-detected rather than assumed: a source without it is a real state of the world.
+  const source = map.getSource(SOURCE_ID) as ClusterSource | undefined;
   if (source === undefined || typeof source.getClusterExpansionZoom !== 'function') return;
 
   try {
     const zoom = await source.getClusterExpansionZoom(clusterId);
-    // The promise resolves a frame or more later; the user may have panned, or the map
-    // may already be torn down. MapLibre has no public `isDestroyed`, so the caller tells us.
+    // The promise resolves a frame or more later; the user may have panned, switched
+    // feature, or the map may already be torn down. There is no public `isDestroyed`, so
+    // the caller tells us — and a switched-away feature answers `false`, which is what
+    // stops a late zoom landing on somebody else's map.
     if (!isActive() || map.getSource(SOURCE_ID) === undefined) return;
     map.easeTo({
       center: coordinates,
@@ -444,25 +450,22 @@ async function expandCluster(
 }
 
 /**
- * Wires clicks, hover and `moveend`. Returns a detach function; the controller calls it from
- * `destroy()` so nothing stays bound to a dead map.
+ * Wires clicks and hover. Returns a detach function, which `MapFeature.unmount` calls — so
+ * that switching feature leaves no click handler bound to a map the new feature is now
+ * using, and no hover handler setting the cursor for layers that are no longer there.
  */
-export function attachMapInteractions(
-  map: MapLibreMap,
-  handlers: MapInteractionHandlers,
+export function attachEatInteractions(
+  map: MapLibreLike,
+  handlers: EatInteractionHandlers,
 ): () => void {
   const subscriptions: Array<{ unsubscribe: () => void }> = [];
   let detached = false;
   const isActive = (): boolean => !detached;
   const report = (error: Error): void => handlers.onError?.(error);
 
-  const reportBounds = (): void => {
-    if (detached) return;
-    handlers.onBoundsChange(readBounds(map));
-  };
-
-  const onMapClick = (event: MapMouseEvent): void => {
-    const rendered = map.queryRenderedFeatures(event.point, { layers: [...CLICKABLE_LAYER_IDS] });
+  const onMapClick = (event: unknown): void => {
+    const point = (event as { readonly point?: unknown } | null)?.point;
+    const rendered = map.queryRenderedFeatures(point, { layers: [...CLICKABLE_LAYER_IDS] });
     const feature = rendered[0];
     if (feature === undefined) {
       handlers.onClearSelection();
@@ -477,8 +480,6 @@ export function attachMapInteractions(
   };
 
   subscriptions.push(map.on('click', onMapClick));
-  subscriptions.push(map.on('moveend', reportBounds));
-  subscriptions.push(map.on('resize', reportBounds));
 
   for (const layerId of CLICKABLE_LAYER_IDS) {
     subscriptions.push(
