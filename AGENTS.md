@@ -52,16 +52,17 @@ npm run test:data   # pytest, no network
 
 `npm run verify` is `ci.yml` in the same order — the app job's lint, test and
 build, then the data job's strict validation and Python tests. If it passes
-locally, CI passes. Neither differs in what it checks: `ci.yml` names
-`npm run typecheck` as its own step, which `npm run build` already performs via
-`tsc --noEmit`, and it runs its two jobs in parallel rather than in sequence.
+locally, CI passes. Neither differs in what it checks. The two differences are
+cosmetic by comparison — `ci.yml` names `npm run typecheck` as its own step,
+which `npm run build` already performs via `tsc --noEmit`, and it runs its two
+jobs in parallel rather than in sequence.
 
 There is **no automated formatter** — no Prettier dependency and no config. Do
 not "fix" formatting as a side effect of another change; match the surrounding
 file by hand. `npm run lint` and `npm run typecheck` are the only automated style
 gates.
 
-There are 511 TypeScript tests and 212 Python tests. Both suites run in well
+There are 511 TypeScript tests and 213 Python tests. Both suites run in well
 under a second. **Every behaviour change needs a test that would fail without
 your change** — not "the existing tests still pass".
 

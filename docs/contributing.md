@@ -153,7 +153,7 @@ Beyond what the tools enforce:
 
 ## Tests
 
-There are 511 TypeScript tests and 212 Python tests. Both suites run in
+There are 511 TypeScript tests and 213 Python tests. Both suites run in
 well under a second, so there is no excuse for skipping one.
 
 - **Every behaviour change needs a test.** Not "the existing tests still pass" —
