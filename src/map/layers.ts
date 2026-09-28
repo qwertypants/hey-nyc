@@ -42,6 +42,7 @@ import type {
 import type { LocationCollection } from '../types/location';
 import type { MapBounds } from '../lib/bounds';
 import type { Filters } from '../lib/filters';
+import { DEFAULT_CAMERA_DURATION_MS, motionFor } from './motion';
 import { CLUSTER_STYLE, DINING_TYPE_STYLE_LIST, LABEL_STYLE, SELECTED_STYLE } from './style';
 import type { TypeStyle } from './style';
 
@@ -432,7 +433,11 @@ async function expandCluster(
     // The promise resolves a frame or more later; the user may have panned, or the map
     // may already be torn down. MapLibre has no public `isDestroyed`, so the caller tells us.
     if (!isActive() || map.getSource(SOURCE_ID) === undefined) return;
-    map.easeTo({ center: coordinates, zoom, duration: 480 });
+    map.easeTo({
+      center: coordinates,
+      zoom,
+      ...motionFor({ duration: DEFAULT_CAMERA_DURATION_MS, essential: false }),
+    });
   } catch (error) {
     report(error instanceof Error ? error : new Error(String(error)));
   }

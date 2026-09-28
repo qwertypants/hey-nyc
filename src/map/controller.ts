@@ -37,6 +37,7 @@ import { fitViewFor, NYC_DATA_BOUNDS } from '../lib/viewport';
 import { createMap } from './createMap';
 import { addLocationLayers, attachMapInteractions, readBounds } from './layers';
 import type { LocationLayers } from './layers';
+import { DEFAULT_CAMERA_DURATION_MS, motionFor } from './motion';
 import { LABEL_STYLE } from './style';
 
 export type MapStatus = 'loading' | 'ready' | 'error';
@@ -57,6 +58,12 @@ export const FOCUS_ZOOM = LABEL_STYLE.minZoom;
 
 export interface FlyOptions {
   readonly duration?: number;
+  /**
+   * MapLibre's "override the user's reduced-motion setting" flag, not "this move matters".
+   * `motionFor` overrules it while the preference is on, so the only thing it can still express
+   * is an intent MapLibre already has by default; the field stays because `MapController` is the
+   * boundary `src/App.tsx` calls through.
+   */
   readonly essential?: boolean;
 }
 
@@ -231,8 +238,10 @@ export function createMapController(
       map.easeTo({
         center: [target.lng, target.lat],
         zoom: target.zoom,
-        duration: flyOptions?.duration ?? 480,
-        essential: flyOptions?.essential ?? true,
+        ...motionFor({
+          duration: flyOptions?.duration ?? DEFAULT_CAMERA_DURATION_MS,
+          essential: flyOptions?.essential ?? false,
+        }),
       });
       publish({ view: target });
     },
@@ -247,8 +256,14 @@ export function createMapController(
         ],
         {
           padding: fitOptions?.padding ?? 48,
-          duration: fitOptions?.duration ?? 480,
           maxZoom: 16,
+          // `fitBounds` forwards to `flyTo` (or `easeTo`, when `linear` is set), so the same
+          // preference governs it as governs `flyTo` — stated here rather than inherited by
+          // accident, because an option left out of this call is one MapLibre defaults away.
+          ...motionFor({
+            duration: fitOptions?.duration ?? DEFAULT_CAMERA_DURATION_MS,
+            essential: fitOptions?.essential ?? false,
+          }),
         },
       );
     },
