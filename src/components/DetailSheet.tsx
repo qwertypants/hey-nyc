@@ -150,7 +150,10 @@ export function DetailSheet({
         <p className="eoy-sheet__meta">Status: {location.status}</p>
 
         <div className="eoy-sheet__actions">
-          <DirectionsLink target={directionsTargetFor(location, coords)} />
+          <DirectionsLink
+            target={directionsTargetFor(location, coords)}
+            options={{ origin }}
+          />
           {onShowOnMap === undefined ? null : (
             <button type="button" className="eoy-button" onClick={onShowOnMap}>
               <MapIcon />
