@@ -67,8 +67,9 @@ are re-measured on every refresh by `scripts/inspect_data.py`.
 
 ### Columns that do not exist
 
-The original product brief speculated about several fields. **None of them are in this
-dataset**, so none are implemented, and nothing stands in for them:
+Several fields a consumer of this dataset might expect are worth naming
+explicitly. **None of them are in this dataset**, so none are implemented, and
+nothing stands in for them:
 
 - seating capacity, number of tables, café dimensions, square footage
 - hours of operation, cuisine, price range, menu, photos
@@ -256,7 +257,9 @@ product renders or filters on each one. The 23 source columns are not copied who
 
 The TypeScript mirror of this contract is `src/types/location.ts`. **Both must change
 together.** `scripts/validate_data.py` asserts the artifact against it, and
-`tests/smoke` asserts the same shape at the TypeScript boundary.
+`tests/data-load.test.ts` asserts the same shape at the TypeScript boundary.
+`tests/smoke/build.test.ts` runs the real generated artifact through the real runtime
+validator, so a pipeline that drifts from the app contract fails there too.
 
 `public/data/metadata.json` carries provenance and counts so the UI can render
 "Data updated Sep 27" without a hard-coded date. It includes a `contentHash` —
@@ -272,5 +275,5 @@ Every screen that shows the map, and the README, must carry:
 > Data from **NYC Open Data** — "Dining Out NYC Locations" (`fpeh-f7ci`), provided by the
 > **NYC Department of Transportation**.
 
-Plus the basemap attribution required by §15 of the product brief. See
-`docs/basemap.md`.
+Plus the basemap attribution, which is a separate obligation from a separate
+source. See `docs/basemap.md`.

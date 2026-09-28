@@ -86,8 +86,8 @@ provided by the **New York City Department of Transportation (NYC DOT)**.
   in the Dining Out NYC program".
 - Published by automated job, daily.
 - Read through the Socrata v2.1 JSON endpoint. No API key, no registration.
-- The full column-by-column breakdown, including the 23 source columns we do not
-  use and the six rows we reject, is in
+- The full column-by-column breakdown, including the 9 of the 23 source columns
+  we do not use and the six rows we reject, is in
   [`docs/data-dictionary.md`](docs/data-dictionary.md).
 
 The source publishes **one row per licence**, not one row per business. A
@@ -173,7 +173,7 @@ accessibility contract it implements.
 The app targets **WCAG 2.2 Level AA**, which is the technical bar behind the
 ADA obligations a site like this carries in the United States. Conformance is a
 property of the whole thing, so it is spread across the code rather than bolted
-on:
+on.
 
 Three suites enforce it, and they are kept separate on purpose because they catch different
 classes of defect. Contrast maths will never notice a button with no name; axe will never

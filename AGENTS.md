@@ -52,9 +52,9 @@ npm run test:data   # pytest, no network
 
 `npm run verify` is `ci.yml` in the same order — the app job's lint, test and
 build, then the data job's strict validation and Python tests. If it passes
-locally, CI passes. The one difference is that `ci.yml` runs
-`npm run typecheck` as its own named step, which `npm run build` already
-performs via `tsc --noEmit`.
+locally, CI passes. Neither differs in what it checks: `ci.yml` names
+`npm run typecheck` as its own step, which `npm run build` already performs via
+`tsc --noEmit`, and it runs its two jobs in parallel rather than in sequence.
 
 There is **no automated formatter** — no Prettier dependency and no config. Do
 not "fix" formatting as a side effect of another change; match the surrounding

@@ -269,7 +269,7 @@ includes every bug fix is one nobody reads.
    fifteen-minute conversation before you write the code is cheaper than a
    rejected pull request.
 2. **Branch from `main`**, one topic per branch.
-3. **Run `npm run verify` and `npm run test:data`** before you push.
+3. **Run `npm run verify`** before you push. It runs the Python tests too.
 4. **Fill in the pull request template.** The frozen-contract checklist is the
    part that matters; tick it honestly rather than optimistically.
 5. **CI must be green.** `ci.yml` runs two independent jobs: lint, typecheck,
