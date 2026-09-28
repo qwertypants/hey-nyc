@@ -41,6 +41,7 @@ One source of truth, or none.
 | [0002](docs/adr/0002-hash-features-never-the-timestamp.md) | `contentHash` covers published features, never a timestamp | touch `content_hash()`, the id recipe, or the refresh workflow |
 | [0003](docs/adr/0003-keyless-basemap-three-runtime-deps.md) | OpenFreeMap via one env var; three runtime deps; standard-library pipeline | add a dependency, swap the basemap, or add geocoding |
 | [0004](docs/adr/0004-record-decisions-as-adrs.md) | Decisions are ADRs, recalled from an index. Docs only, no CI gate | change the process itself |
+| [0005](docs/adr/0005-google-maps-directions-handoff.md) | The "Directions" link hands off to a key-free Google Maps URL, because `geo:` is a dead click on desktop | change the directions handoff, or act on "no Google" in the Never list below |
 
 ## Verify
 
@@ -104,7 +105,10 @@ without a new ADR.
 - **No accounts, sign-in, cookies, analytics or tracking.** This is why there is
   no backend.
 - **No proprietary, scraped or gated data source.** No Mapbox token, no Google,
-  no paid geocoder, no Yelp or Google Places.
+  no paid geocoder, no Yelp or Google Places. "No Google" means no Google
+  *data* — no key, no account, no SDK, no Places, nothing rendered from
+  Google's response. A plain outbound link is not data and is covered by
+  [ADR 0005](docs/adr/0005-google-maps-directions-handoff.md).
 - **No vendored basemap style JSON.** It is the thing that makes MapLibre drop
   the OpenStreetMap attribution.
 - **No new runtime npm dependency** without an ADR arguing the standard library

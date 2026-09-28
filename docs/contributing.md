@@ -251,6 +251,7 @@ index — read it before you change anything — is
 | [0002 — Hash the features, never the timestamp](adr/0002-hash-features-never-the-timestamp.md) | Why `content_hash()` is not to be touched, and why `git diff` is not the change detector |
 | [0003 — A keyless basemap and three runtime dependencies](adr/0003-keyless-basemap-three-runtime-deps.md) | OpenFreeMap, the three dependencies, the standard-library pipeline, and the whole "what not to add" list |
 | [0004 — Record decisions as ADRs](adr/0004-record-decisions-as-adrs.md) | Why this section exists |
+| [0005 — Hand directions to Google Maps over a web URL](adr/0005-google-maps-directions-handoff.md) | Why the app may link out to Google Maps without a key, and what "no Google" in the list above is actually forbidding |
 
 **Write an ADR before you write the code** if your change adds a runtime or
 pipeline dependency, alters the contract, touches `content_hash()` or the id
