@@ -381,6 +381,28 @@ button {
   transform: translateY(-200%);
 }
 
+/*
+ * REVEAL ON ANY FOCUS, not only `:focus-visible`.
+ *
+ * The skip link is a `<button>` (see `src/App.tsx`), and neither Safari on iOS nor Chrome on
+ * Android applies `:focus-visible` to a tapped button — so the one way out of the header was
+ * translated off the top of the viewport for exactly the visitors with no keyboard to press
+ * Tab with.
+ *
+ * Checked before widening the selector, because `:focus` is the cruder of the two: a click
+ * leaves focus on the button, so a mouse user who touches the header keeps the link on screen
+ * until they click elsewhere or tab away. That is a deliberate trade rather than an oversight
+ * — it is one pill in the top corner of the header, it vanishes on the very next interaction,
+ * and it cannot cover the map. The alternative is a keyboard-only escape hatch that a phone
+ * cannot reach at all.
+ */
+.eoy-skip-link:focus {
+  transform: translateY(0);
+}
+
+/* Kept rather than folded into the rule above: this is the one that reveals the link for a
+   keyboard, it is what the rest of the stylesheet's focus story is written against, and a
+   browser that understands only one of the two selectors is still covered. */
 .eoy-skip-link:focus-visible {
   transform: translateY(0);
 }
@@ -478,6 +500,10 @@ button {
   line-height: 1.1;
   color: #ffffff;
   white-space: nowrap;
+  /* Applied for consistency with the other headings; inert today because `white-space:
+     nowrap` above keeps the wordmark on one line. Recorded here so nobody reads its absence
+     as an oversight if the wordmark ever stops being a single line. */
+  text-wrap: balance;
 }
 
 /* A white ring with a solid core: the same "rimmed disc" the map draws for roadway
@@ -708,6 +734,20 @@ button {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+  /*
+   * 2.4.11 Focus Not Obscured, along the axis the rail scrolls on.
+   *
+   * The rail is a sideways scroller whose right edge is masked to a fade over its last
+   * 1.5rem, and the browser brings a newly focused element to the very edge of its scrollport.
+   * A chip resting flush against that edge is half faded and its focus ring is clipped by the
+   * scrollport — focus with no readable feedback. The end margin is the width of the fade; the
+   * start margin keeps the 3px ring and its 2px offset off the left scrollport edge.
+   *
+   * On the INPUT, not on `.eoy-chip`: `scroll-margin` is not inherited, and the input is the
+   * element that takes focus and the one the scroll offset is computed from. Declared on the
+   * chip it would read as a rule about a box nothing scrolls into view.
+   */
+  scroll-margin-inline: var(--eoy-space-3) var(--eoy-space-5);
 }
 
 /* Selected: inverted, exactly like every other active state in this system. One
@@ -878,8 +918,17 @@ button {
   left: 0;
   right: 0;
   z-index: 40;
+  /*
+   * `vh` is the viewport with the phone's URL bar HIDDEN, so this panel could hang under the
+   * bar while the bar was showing. `dvh` is the bar-aware viewport, so it is declared second
+   * and the `vh` value first: an engine that predates `dvh` (Safari before 15.4) discards the
+   * declaration it cannot parse and keeps the older one.
+   */
   max-height: min(60vh, 24rem);
+  max-height: min(60dvh, 24rem);
   overflow-y: auto;
+  /* Every scroller in this app contains its own overscroll. See `.eoy-list__items`. */
+  overscroll-behavior: contain;
   border-radius: var(--eoy-radius-lg);
   background: var(--eoy-surface);
   color: var(--eoy-text);
@@ -937,6 +986,8 @@ button {
   display: block;
   font-size: var(--eoy-text-sm);
   font-weight: 500;
+  /* The same place name in the popup, wrapping the same way. See `.eoy-row__name`. */
+  text-wrap: pretty;
 }
 
 .eoy-search__option-meta {
@@ -1005,6 +1056,9 @@ button {
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.25;
+  /* A two-line title on a phone is the case where an even rag is the difference between a
+     heading and a paragraph, so the lines are balanced rather than left ragged. */
+  text-wrap: balance;
 }
 
 .eoy-list__title:focus-visible {
@@ -1023,6 +1077,15 @@ button {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  /*
+   * iOS rubber-bands a scroller that has reached its end and drags the page with it.
+   * `contain` stops both the scroll chaining and the bounce, and the bounce is the part that
+   * matters: `body` already sets `overscroll-behavior-y: none`, yet the rubber band is drawn
+   * by the scroller that was over-scrolled rather than by the page it fails to move, so the
+   * page-level declaration does not save this box. Same declaration the filter rail already
+   * uses on its own horizontal scroll.
+   */
+  overscroll-behavior: contain;
   margin: 0;
   padding: 0 0 var(--eoy-space-4);
   list-style: none;
@@ -1070,6 +1133,9 @@ button {
   font-size: var(--eoy-text-md);
   font-weight: 700;
   letter-spacing: -0.01em;
+  /* `pretty`, not `balance`: this is running text, not a heading, so the goal is that a
+     wrapped place name never leaves a single-word last line under a bold first line. */
+  text-wrap: pretty;
 }
 
 .eoy-row__distance {
@@ -1133,6 +1199,7 @@ button {
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.25;
+  text-wrap: balance;
 }
 
 .eoy-card__body {
@@ -1550,6 +1617,9 @@ button {
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.2;
+  /* Place names in the source are UPPERCASE and run long, so this is the one heading that
+     genuinely wraps on a phone. Balanced, so the second line is not a single word. */
+  text-wrap: balance;
 }
 
 .eoy-sheet__legal {
@@ -1576,6 +1646,10 @@ button {
 .eoy-sheet__body {
   margin: var(--eoy-space-4) 0 0;
   overflow-y: auto;
+  /* Same overscroll argument as the list, and the same reason it is repeated: a sheet opened
+     at its maximum height has little to scroll, so this is where the rubber band is most
+     likely to be felt and least likely to be understood as the page moving. */
+  overscroll-behavior: contain;
   min-height: 0;
   /* Same reasoning as the list: the sheet's own actions sit at the foot, and a focused
      control scrolled to the very bottom must not hide under them. */
