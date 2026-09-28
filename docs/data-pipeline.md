@@ -245,8 +245,10 @@ primary one is bucketed, and all of them appear in
 | `-`, `N/A`, `NULL`, `NONE`, `NaN` and friends | Treated as null. Counted in `pipeline.nullishText`. |
 
 A 10-digit BBL is the real thing, but two live records legitimately geocode to 8
-and 9 digits, so the floor is 8 rather than 10. Anything shorter than 5 digits is
-junk.
+and 9 digits, so the floor is 5 rather than 10 (`BBL_MIN_DIGITS` in
+`_common.py`). Anything shorter than that is junk. Note that this is the
+*cleaning* floor; `validate_data.py` separately flags any *published* value
+outside 8-10 digits as schema drift.
 
 ## The Sidewalk + Roadway merge
 

@@ -208,8 +208,8 @@ first.
 - **`bbl` is not always 10 digits.** Genuine values of `18830048` (8 digits) and
   `115510024` (9 digits) exist, alongside the genuinely degenerate `1` and `3`. Defining
   "degenerate" as "not exactly 10 digits" would silently delete two real parcels, so the
-  floor is **5 digits**; `1` and `3` are normalised to `null` and counted. 21 published
-  features have `bbl: null`.
+  floor is **5 digits** (`BBL_MIN_DIGITS` in `scripts/_common.py`); `1` and `3` are
+  normalised to `null` and counted. 19 published features have `bbl: null`.
 - **7 rows are missing `ct2020`, `nta2020` and all four computed-region columns** — the
   6 rejected rows plus **`LA CHOZA DEL GORDO` in Bellerose, Queens**, which *is* published
   with `nta: null`. The missing administrative geography is therefore **not** a reliable
@@ -227,7 +227,7 @@ first.
 
 `public/data/cafes.geojson` — a `FeatureCollection` of 2 000 `Point` features.
 
-The client artifact is deliberately **minimal**. Thirteen properties, chosen because the
+The client artifact is deliberately **minimal**. Fourteen properties, chosen because the
 product renders or filters on each one. The 23 source columns are not copied wholesale.
 
 ```jsonc
