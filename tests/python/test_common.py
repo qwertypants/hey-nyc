@@ -20,6 +20,14 @@ def test_contract_constants():
     assert C.HTTP_TIMEOUT > 0
 
 
+def test_user_agent_identifies_the_real_repository():
+    # The contact URL in the User-Agent is a bare org slug that 404s. NYC Open
+    # Data uses it to reach whoever is hammering the endpoint, so it has to
+    # resolve to a repository that exists.
+    assert "https://github.com/qwertypants/hey-nyc" in C.USER_AGENT
+    assert "https://github.com/eat-outside-nyc" not in C.USER_AGENT
+
+
 def test_artifact_paths_are_inside_the_repo():
     assert C.GEOJSON_PATH.relative_to(C.REPO_ROOT).as_posix() == "public/data/cafes.geojson"
     assert C.METADATA_PATH.relative_to(C.REPO_ROOT).as_posix() == "public/data/metadata.json"
