@@ -1,9 +1,15 @@
 /**
- * LAYOUT RESILIENCE. The three WCAG success criteria that are about the box rather than the
+ * LAYOUT RESILIENCE. The WCAG success criteria that are about the box rather than the
  * colour, and that no other suite in this repo can check: target size (2.5.8), text spacing
- * (1.4.12) and reflow (1.4.10).
+ * (1.4.12), reflow (1.4.10) and focus not obscured (2.4.11).
  *
- * All three were previously comments in `src/index.css` — a promise with nothing behind it.
+ * Underneath them sit four declarations that are not criteria at all and would be fixed by
+ * nobody on a desktop: the skip link is off-screen to anyone without a keyboard, a scroller
+ * that can rubber-band the page, a popup sized in the viewport height a phone hides, and
+ * headings that wrap into a rag. Every one of them is invisible to a screenshot, because the
+ * screenshot is taken on the platform where none of them happen.
+ *
+ * All four were previously comments in `src/index.css` — a promise with nothing behind it.
  * They are promises a sighted developer can keep by accident for a while and then break with
  * one well-meant `height: 44px`, and the breakage is invisible in a screenshot and invisible
  * to the person making it. So they are checked here instead.
@@ -19,6 +25,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CSS_NO_COMMENTS,
+  classesIn,
   declarationsFor,
   elementDeclarations,
   lengthsToPx,
@@ -323,6 +330,183 @@ describe('the user-preference overrides the design system promises are actually 
     for (const selector of ['eoy-bottom-bar', 'eoy-sheet']) {
       expect(declarationsFor('light', selector)['padding-bottom'], selector).toContain(
         'var(--eoy-safe-bottom)',
+      );
+    }
+  });
+});
+
+/** A declared length in pixels, or a failure naming the declaration it could not read. */
+function px(value: string, where: string): number {
+  const out = lengthsToPx('light', value);
+  if (out === null) throw new Error(`${where} is "${value}", which is not a length this suite can read`);
+  return out;
+}
+
+describe('focus not obscured (WCAG 2.2 SC 2.4.11, AA)', () => {
+  /**
+   * The one part of 2.4.11 this suite can read: the axis the filter rail scrolls on.
+   *
+   * A browser brings a newly focused element to the very edge of its scrollport, and this
+   * rail's edges are not the page edges — they are covered by a decorative fade, so "at the
+   * edge of the scrollport" is not "fully visible". The chip is focused through a 1px input
+   * that is hidden from the eye, which is the shape that makes this easy to get wrong: the
+   * browser has nothing to scroll to but the sliver.
+   */
+  it('a focused filter chip is scrolled clear of the fade the rail ends in', () => {
+    const fade = /calc\(100%\s*-\s*([\d.]+rem)\)/.exec(
+      declarationsFor('light', 'eoy-rail__scroll')['mask-image'] ?? '',
+    )?.[1];
+    if (fade === undefined) throw new Error('the rail no longer fades its right edge, so this check is stale');
+    const fadePx = px(fade, 'the rail fade');
+
+    /*
+     * On the INPUT's rule, not the chip's: `scroll-margin` is not inherited, and the input is
+     * the element that takes focus and the one the scroll offset is computed from. Declared on
+     * `.eoy-chip` it would read as a rule about a box that nothing ever scrolls into view —
+     * which is exactly the bug this assertion exists to prevent.
+     */
+    const input = readBlocks().find((b) => b.selector === '.eoy-chip input');
+    const declared = /scroll-margin-inline:\s*([^;]+)/.exec(input?.body ?? '')?.[1];
+    if (declared === undefined) {
+      throw new Error('the chip input declares no scroll-margin-inline, so a focused chip rests under the fade');
+    }
+    // Two values are start then end, as in `margin`. One value is both.
+    const [start, end] = resolve('light', declared).trim().split(/\s+/);
+    const startPx = px(start ?? '', 'the chip scroll-margin start');
+    const endPx = px(end ?? start ?? '', 'the chip scroll-margin end');
+    // The chip's indicator is a 3px outline at a 2px offset, and the scrollport clips it.
+    expect(startPx, 'the focused chip rests against the left scrollport edge').toBeGreaterThanOrEqual(5);
+    expect(endPx, 'the focused chip comes to rest inside the rail fade').toBeGreaterThanOrEqual(fadePx);
+  });
+});
+
+describe('a phone has no Tab key, so the skip link cannot depend on :focus-visible', () => {
+  it('the skip link is revealed by plain :focus as well as by :focus-visible', () => {
+    /*
+     * `src/App.tsx` renders the skip link as a `<button>`, and neither Safari on iOS nor
+     * Chrome on Android applies `:focus-visible` to a tapped button. Without a `:focus` rule
+     * the one escape hatch out of the header is translated off the top of the viewport for
+     * exactly the visitors who have no other way to skip it.
+     *
+     * The hiding declaration is read off the base rule rather than through `declarationsFor`,
+     * which merges every matching rule with the last one winning — so it would have reported
+     * `translateY(0)` here and proved the opposite of the truth.
+     */
+    const base = readBlocks().find((b) => b.selector === '.eoy-skip-link');
+    expect(base?.body, 'the skip link is no longer hidden by default').toMatch(/transform:\s*translateY\(\s*-/);
+
+    const reveal = (selector: string): boolean =>
+      readBlocks().some(
+        (b) => b.selector === selector && /transform:\s*translateY\(\s*0\s*\)/.test(b.body),
+      );
+    expect(reveal('.eoy-skip-link:focus'), 'a tapped skip link stays off-screen').toBe(true);
+    // Kept deliberately: this is the rule the rest of the stylesheet's focus story assumes.
+    expect(reveal('.eoy-skip-link:focus-visible')).toBe(true);
+  });
+});
+
+describe('no scroll container can move the page past its own edge', () => {
+  it('every scroller contains its own overscroll', () => {
+    /*
+     * `body` already sets `overscroll-behavior-y: none`, and it does not help here: on iOS the
+     * rubber band is drawn by the scroller that was over-scrolled, not by the page it fails
+     * to move. So the declaration belongs on each scroller, and the list is derived from the
+     * `overflow` declarations rather than written out — otherwise the next scroll region
+     * added to this stylesheet would arrive unguarded.
+     *
+     * The rail already declares `overscroll-behavior-x: contain`, and that counts: `contain`
+     * is the value, whether it arrived through the shorthand or through one axis.
+     */
+    const scrollers = readBlocks().filter((b) =>
+      /(^|[;{\s])overflow(-[xy])?\s*:\s*(auto|scroll)\b/.test(b.body),
+    );
+    expect(scrollers.length, 'no scroll container at all, so this assertion proves nothing').toBeGreaterThan(0);
+
+    for (const block of scrollers) {
+      // Every scroller in this file is a bare single-class rule. If one is not, the class this
+      // assertion would read is the wrong box, so it fails loudly rather than passing on a
+      // declaration that belongs to something else.
+      const classes = classesIn(block.selector);
+      expect(classes.length, `${block.selector} names no single class to check`).toBe(1);
+      const decls = declarationsFor('light', classes[0] ?? '');
+      expect(
+        decls['overscroll-behavior'] ?? decls['overscroll-behavior-y'] ?? decls['overscroll-behavior-x'] ?? '(nothing)',
+        `${block.selector} scrolls, so an over-scroll at its end must not chain to the page`,
+      ).toContain('contain');
+    }
+  });
+});
+
+describe('nothing is sized in `vh`, which is the viewport with the toolbar hidden', () => {
+  it('the search panel prefers `dvh`, and keeps `vh` in front of it as the fallback', () => {
+    /*
+     * The only vertical viewport unit in the file, in the one place that hangs over content:
+     * on a handset the phone's URL bar shrinks `vh` but not `dvh`, so the panel could reach
+     * under the bar while the bar was showing. Engines that predate `dvh` (Safari before 15.4)
+     * discard a declaration they cannot parse, which is what makes the older value first and
+     * the newer one second a fallback rather than a duplicate.
+     *
+     * `vw` is deliberately not flagged: the mobile toolbar changes the viewport HEIGHT, not
+     * its width, so the one `vw` in the wide-layout sheet has no equivalent trap.
+     */
+    const offenders = readBlocks().flatMap((block) => {
+      const declared = [...block.body.matchAll(/([\w-]+)\s*:\s*([^;]+)/g)].map(
+        (m) => [m[1] ?? '', m[2]?.trim() ?? ''] as const,
+      );
+      return declared.flatMap(([property, value], index) => {
+        if (!/[\d.]+vh\b/.test(value)) return [];
+        /*
+         * A `vh` value is allowed in exactly one shape: as the fallback for a `dvh` value of
+         * the same property, declared immediately after it so an engine that cannot parse
+         * `dvh` has already dropped the newer declaration and kept this one. Anything else is a
+         * box sized against the viewport with the phone's toolbar hidden.
+         */
+        const next = declared[index + 1];
+        const isFallback = next !== undefined && next[0] === property && /[\d.]+dvh\b/.test(next[1]);
+        return isFallback ? [] : [`${block.selector} { ${property}: ${value} }`];
+      });
+    });
+    expect(
+      offenders,
+      `these declarations size something in \`vh\`, which on a phone is the viewport with the URL\n` +
+        `bar hidden. Declare the \`dvh\` value second and keep the \`vh\` value first as the fallback.\n  ${offenders.join('\n  ')}`,
+    ).toEqual([]);
+
+    const panel = readBlocks().find((b) => b.selector === '.eoy-search__panel');
+    const declared = [...(panel?.body ?? '').matchAll(/max-height:\s*([^;]+);/g)].map((m) =>
+      m[1]?.trim(),
+    );
+    expect(declared, 'the search panel no longer declares a max-height in viewport units').toEqual([
+      'min(60vh, 24rem)',
+      'min(60dvh, 24rem)',
+    ]);
+  });
+});
+
+describe('wrapped text (readability rather than a criterion)', () => {
+  it('every heading in the app balances its lines', () => {
+    // A heading is the one place an even rag is visible as a defect: two lines of very
+    // different lengths read as a heading and a subtitle rather than one heading.
+    const HEADINGS = [
+      'eoy-wordmark', // h1, src/App.tsx
+      'eoy-list__title', // h2, src/components/LocationList.tsx
+      'eoy-sheet__title', // h2, src/components/DetailSheet.tsx
+      'eoy-card__title', // h2 and, with --small, h3, src/components/StateCards.tsx
+    ] as const;
+    for (const selector of HEADINGS) {
+      expect(declarationsFor('light', selector)['text-wrap'], `.${selector} does not balance its lines`).toBe(
+        'balance',
+      );
+    }
+  });
+
+  it('the place name is set to pretty, so a wrapped name has no one-word last line', () => {
+    // `pretty`, not `balance`: these are running text, and they are the dataset's own
+    // UPPERCASE names, which wrap in the middle of a word's worth of letters rather than at
+    // a convenient boundary. Balancing would treat them as headings.
+    for (const selector of ['eoy-row__name', 'eoy-search__option-name']) {
+      expect(declarationsFor('light', selector)['text-wrap'], `.${selector} does not set text-wrap`).toBe(
+        'pretty',
       );
     }
   });
