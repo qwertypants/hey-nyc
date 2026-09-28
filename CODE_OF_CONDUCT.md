@@ -40,7 +40,7 @@ and to anyone representing the project in public.
 ## Reporting
 
 Report a problem privately to the maintainers by opening a
-[GitHub security advisory](https://github.com/eat-outside-nyc/eat-outside-nyc/security/advisories/new)
+[GitHub security advisory](https://github.com/qwertypants/hey-nyc/security/advisories/new)
 rather than a public issue. Reports about conduct will be handled confidentially,
 reviewed, and acted on. Maintainers who do not follow this code are subject to
 the same consequences as anyone else participating in the project.

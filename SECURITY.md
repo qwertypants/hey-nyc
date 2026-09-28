@@ -43,7 +43,7 @@ Out of scope:
 **Do not open a public issue.**
 
 Use GitHub's private reporting:
-**<https://github.com/eat-outside-nyc/eat-outside-nyc/security/advisories/new>**
+**<https://github.com/qwertypants/hey-nyc/security/advisories/new>**
 
 Please include the affected path or workflow, what an attacker could do, and how
 to reproduce it. If you have a proof of concept, keep it to what is needed to
