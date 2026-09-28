@@ -282,16 +282,49 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
     <div className="eoy-app">
       {/* Everything behind the sheet, so `aria-modal` on the sheet is a true statement. */}
       <div className="eoy-app__body" inert={sheetOpen}>
-        <button
-          type="button"
-          className="eoy-skip-link"
-          onClick={() => {
-            focusListAfterSwitch.current = true;
-            setViewMode('list');
-          }}
-        >
-          Skip to the list of places
-        </button>
+        {/*
+          THE FIRST FOCUSABLE THING ON THE PAGE, and a `<button>` on purpose. An anchor to
+          `#eoy-place-list` would be worse twice over: the list carries `hidden` in map view,
+          so the browser would try to focus a subtree that is not rendered, and the view
+          underneath it would still be the map. There is no router here, so pressing this is
+          an action on the page rather than navigation.
+
+          `aria-controls` is the half that was missing, and it is the same relationship
+          `SearchBox` already asserts: the id resolves to a real element in the DOM whether
+          or not that element is currently shown, so the association survives the press. The
+          target is the labelled `<section>` in `LocationList` — not the heading, which is
+          where focus actually lands, because `aria-controls` names the region and the
+          heading is inside it. The id is a literal here because the association spans two
+          components; `tests/app-skip-control.test.tsx` resolves it against the live DOM, so
+          a rename of the section cannot quietly break it.
+
+          GATED ON `ready`, like the rail and Near me beside it, and for the same reason
+          neither offers itself before there is a dataset. `LocationList` is not mounted
+          until then, so offering the control earlier would mean an `aria-controls` pointing
+          at nothing — a claim the DOM denies, which axe rates critical — and a "show the
+          list" that shows nothing while hiding the map. The control is only true when the
+          region it names exists.
+
+          The name says "show" rather than "skip", because pressing this turns the map off
+          and "skip" promises only a change of focus. The consequence is spelled out in the
+          label rather than left to be inferred, since a screen-reader user cannot watch the
+          map disappear — and it stays in the label rather than in an `aria-describedby`
+          hint, because this control sits outside every landmark and axe's `region` rule
+          exempts a button but not a bare text span dropped beside one.
+        */}
+        {ready ? (
+          <button
+            type="button"
+            className="eoy-skip-link"
+            aria-controls="eoy-place-list"
+            onClick={() => {
+              focusListAfterSwitch.current = true;
+              setViewMode('list');
+            }}
+          >
+            Show the list of places, not the map
+          </button>
+        ) : null}
 
         <header className="eoy-header">
           <div className="eoy-header__bar">
