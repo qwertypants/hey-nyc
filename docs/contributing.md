@@ -54,13 +54,15 @@ npm run data:refresh
 **Check everything before you push:**
 
 ```bash
-npm run verify            # lint + test + build + data:validate
-npm run test:data         # pytest, no network
+npm run verify            # lint + test + build + data:validate --strict + pytest
 ```
 
-`npm run verify` is exactly what `ci.yml` runs on your pull request, in the same
-order. If it passes locally, CI will pass — except for the parts CI does that you
-cannot do locally, which is only the build against a clean `node_modules`.
+`npm run verify` is what `ci.yml` runs on your pull request, in the same order:
+the app job's lint, test and build, then the data job's
+`validate_data.py --strict` and its Python tests. If it passes locally, CI will
+pass. The two differences are cosmetic by comparison — `ci.yml` names
+`npm run typecheck` as its own step, which `npm run build` already does via
+`tsc --noEmit`, and it runs its two jobs in parallel rather than in sequence.
 
 **No secrets, no accounts, no API keys.** If a change requires one, that change
 does not belong in this project.
