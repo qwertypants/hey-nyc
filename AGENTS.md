@@ -61,7 +61,7 @@ not "fix" formatting as a side effect of another change; match the surrounding
 file by hand. `npm run lint` and `npm run typecheck` are the only automated style
 gates.
 
-There are 457 TypeScript tests and 212 Python tests. Both suites run in well
+There are 511 TypeScript tests and 212 Python tests. Both suites run in well
 under a second. **Every behaviour change needs a test that would fail without
 your change** — not "the existing tests still pass".
 

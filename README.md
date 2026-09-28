@@ -253,7 +253,7 @@ how to point it somewhere else.
 | --- | --- |
 | `npm run lint` | ESLint over `src`, `tests` and the config files. |
 | `npm run typecheck` | `tsc --noEmit`. |
-| `npm test` | Vitest: 457 tests over the loader, filters, search, URL state, colour contrast, layout resilience and axe. |
+| `npm test` | Vitest: 511 tests over the loader, filters, search, URL state, colour contrast, layout resilience and axe. |
 | `npm run test:a11y` | The three accessibility suites on their own: contrast, layout, axe. |
 | `npm run test:data` | `pytest tests/python` — 212 tests, no network. |
 | `npm run build` | Typecheck, then a production build into `dist/`. |
@@ -382,7 +382,7 @@ Read [`docs/contributing.md`](docs/contributing.md) first. The short version:
 
 - `src/types/location.ts` and `scripts/` are a **frozen contract**. They change
   together, or not at all.
-- Every behavioural change needs a test. There are 457 TypeScript tests and 212
+- Every behavioural change needs a test. There are 511 TypeScript tests and 212
   Python tests; match them.
 - Do not add ratings, hours, menus, prices, cuisine or photos. They are not in
   the source dataset, and inferring them turns a factual map into a guess.
