@@ -6,7 +6,24 @@
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#1b1b1f" />
+    <!--
+      Browser UI colour, and the only part of the design system a meta tag cannot read from
+      src/index.css — so these two hexes are a copy, and `tests/head.test.ts` parses them back
+      out of the stylesheet so a copy that drifts fails instead of shipping.
+
+      They are the HEADER, not `--eoy-bg`. `.eoy-app` is `position: fixed; inset: 0` and
+      `.eoy-app__body` is a grid whose first row is the header, so the top edge of the screen
+      is `.eoy-header` in both schemes — and the header is black by design. `--eoy-bg` is what
+      fills the rest of the shell; in the light scheme that is near-white, and a near-white
+      toolbar butted against a black bar is the worse of the two mistakes.
+
+      Light FIRST, because a browser that does not implement `media` on this element takes
+      the first one it finds, and light is this document's own default: `:root` declares
+      `color-scheme: light` and only overrides it inside `prefers-color-scheme: dark`. The
+      fallback a browser lands on by not asking is the one the page itself declares.
+    -->
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
     <title>Eat Outside NYC — outdoor dining, mapped</title>
     <meta
       name="description"
