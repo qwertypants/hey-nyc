@@ -20,6 +20,7 @@ The short version. Read the ADR when the change you are making touches it.
 | [0002](adr/0002-hash-features-never-the-timestamp.md) | [Hash the features, never the timestamp](adr/0002-hash-features-never-the-timestamp.md) — `contentHash` covers the published records only, so the daily refresh can tell a real change from a re-run | Accepted *(retroactive)* | 2026-09-27 |
 | [0003](adr/0003-keyless-basemap-three-runtime-deps.md) | [A keyless basemap and three runtime dependencies](adr/0003-keyless-basemap-three-runtime-deps.md) — OpenFreeMap via one env var; `maplibre-gl`, `react`, `react-dom` and nothing else ships | Accepted *(retroactive)* | 2026-09-27 |
 | [0004](adr/0004-record-decisions-as-adrs.md) | [Record decisions as ADRs, recalled from an index](adr/0004-record-decisions-as-adrs.md) — this file, `docs/adr/`, `AGENTS.md`, and the trigger list below. Docs only, no CI gate | Accepted | 2026-09-27 |
+| [0005](adr/0005-google-maps-directions-handoff.md) | [Hand directions to Google Maps over a web URL](adr/0005-google-maps-directions-handoff.md) — the "Directions" link opens a key-free Maps URL, because `geo:` is a dead click on desktop | Accepted | 2026-09-28 |
 
 0001–0003 are marked *retroactive*: those decisions were made and reasoned on
 2026-09-27 and written down afterwards, reconstructed from commit `9c18edd` and
