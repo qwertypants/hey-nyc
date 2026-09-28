@@ -55,6 +55,14 @@ export function UserLocationMarker({ controller, position }: UserLocationMarkerP
       try {
         const element = document.createElement('div');
         element.className = 'eoy-user-marker';
+        // WHY `aria-hidden`. MapLibre parents this node into `.eoy-map`, which App.tsx
+        // marks up as a `role="region"` with a name — so "invisible to a screen reader" is
+        // no longer something the DOM gives us for free. An empty div happens to be inert,
+        // but that is an accident of there being no text, role or name in it, not a promise:
+        // the first person to drop a label in here publishes it. The attribute makes the
+        // intent enforced rather than inferred. The counterpart is the chip named in the
+        // header above; nothing here is worth reading out.
+        element.setAttribute('aria-hidden', 'true');
         marker = new Marker({ element, anchor: 'center' })
           .setLngLat([position.lng, position.lat])
           .addTo(map);
