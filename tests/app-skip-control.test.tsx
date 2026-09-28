@@ -26,12 +26,14 @@ import { renderApp } from './helpers/render';
 
 /**
  * Located by role and name rather than by class, because the association this file exists to
- * check is a name the assistive technology can read. The pattern is deliberately wide enough
- * to match the label before and after it was rewritten, so a failure here is about the
- * association and not about the wording.
+ * check is a name the assistive technology can read. `/list/` is deliberately the one word
+ * every version of this label has carried — "Skip to the list of places", "Show the list of
+ * places, not the map", "Show the list, not the map" — so a failure here is about the
+ * association and not about the wording. The wording is pinned separately, and on its own
+ * terms, in the name test below.
  */
 function skipControl(): HTMLElement {
-  return screen.getByRole('button', { name: /list of places/i });
+  return screen.getByRole('button', { name: /list/i });
 }
 
 /**
@@ -109,11 +111,16 @@ describe('the skip control', () => {
 
     // Pinned to an active verb on purpose. "Skip to the list of places" is a promise about
     // focus only, and pressing this also replaces the whole stage; a screen-reader user
-    // cannot see that happen, so the name has to carry it.
+    // cannot see that happen, so the name has to carry it. Pinned as the two FACTS rather
+    // than as wording: the label is held to one line at 320px, and pinning the exact string
+    // would make that budget impossible to keep without editing a test.
     const name = computeAccessibleName(skipControl());
     expect(name).toMatch(/^show/i);
-    expect(name).toMatch(/list of places/i);
+    expect(name).toMatch(/\blist\b/i);
     expect(name, 'the name does not say the map is replaced').toMatch(/not the map/i);
+    // The 1.4.10 reflow floor. `.eoy-skip-link` has no width and no nowrap, so a longer label
+    // wraps rather than overflowing, and a two-line pill covers the wordmark.
+    expect(name.length, 'the label wraps to two lines at 320px').toBeLessThanOrEqual(30);
   });
 
   it('is not offered while the dataset is still loading', async () => {

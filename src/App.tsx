@@ -311,6 +311,14 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
           map disappear — and it stays in the label rather than in an `aria-describedby`
           hint, because this control sits outside every landmark and axe's `region` rule
           exempts a button but not a bare text span dropped beside one.
+
+          Thirty-four characters of label was the first attempt and it is nearly twice this:
+          `.eoy-skip-link` is absolutely positioned with no width, so it sizes to its content
+          and wraps at whatever the viewport is. At the 320px floor of WCAG 1.4.10 a longer
+          label wraps to two lines, and a two-line pill lands on top of the wordmark — the
+          one thing on this page a visitor is guaranteed to have already read. So the name is
+          kept to one line at 320px, and `tests/app-skip-control.test.tsx` pins the two facts
+          that matter (it names the list, and it says the map goes) rather than the wording.
         */}
         {ready ? (
           <button
@@ -322,7 +330,7 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
               setViewMode('list');
             }}
           >
-            Show the list of places, not the map
+            Show the list, not the map
           </button>
         ) : null}
 

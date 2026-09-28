@@ -407,6 +407,16 @@ button {
   transform: translateY(0);
 }
 
+/*
+ * This block is currently inert, and that is not an oversight. This stylesheet declares no
+ * `transition` and no `animation` anywhere, so there is no CSS motion for it to switch off.
+ * Every animation in this app is imperative JavaScript driving the MapLibre camera, and that
+ * one lives in `src/map/motion.ts` — which is what actually reads the preference.
+ *
+ * It is kept because it is a floor, not a ceiling: the next person to add a transition in
+ * this file inherits reduced-motion support for free, which is the right default even
+ * though nothing today depends on it. `tests/layout.test.ts` asserts the block is present.
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
