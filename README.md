@@ -16,9 +16,11 @@ account, no tracking.
 <!-- The Pages URL for a project site is always
      https://<owner>.github.io/<repo>/, and .github/workflows/deploy.yml
      derives the matching VITE_BASE_PATH from the repository name at build
-     time. So a fork needs this one line changed and nothing else. Note the
-     repository is `hey-nyc` while the app is called Eat Outside NYC — see
-     "Deployment" for what that means for a fork. -->
+     time. So a fork needs only the three hand-written Pages URLs changed —
+     the "Open the live map" link above, the "Live site" line, and the URL in
+     "Deployment" — and nothing else. Note the repository is `hey-nyc` while
+     the app is called Eat Outside NYC — see "Deployment" for what that means
+     for a fork. -->
 
 ## Contents
 
@@ -102,11 +104,13 @@ JSON endpoint: no API key, no registration.
 
 ### Dining Out NYC Locations (`fpeh-f7ci`)
 
-The city's own row label is a "food service establishment that is participating
-in the Dining Out NYC program". Published by automated job, daily. The full
-column-by-column breakdown, including the 23 source columns we do not use and
-the six rows we reject, is in
-[`docs/data-dictionary.md`](docs/data-dictionary.md).
+- The city's own row label is a "food service establishment that is participating
+  in the Dining Out NYC program".
+- Published by automated job, daily.
+- Read through the Socrata v2.1 JSON endpoint. No API key, no registration.
+- The full column-by-column breakdown, including the 9 of the 23 source columns
+  we do not use and the six rows we reject, is in
+  [`docs/data-dictionary.md`](docs/data-dictionary.md).
 
 The source publishes **one row per licence**, not one row per business. A
 business with both a sidewalk and a roadway licence appears twice. The pipeline
@@ -246,7 +250,7 @@ accessibility contract it implements.
 The app targets **WCAG 2.2 Level AA**, which is the technical bar behind the
 ADA obligations a site like this carries in the United States. Conformance is a
 property of the whole thing, so it is spread across the code rather than bolted
-on:
+on.
 
 Three suites enforce it, and they are kept separate on purpose because they catch different
 classes of defect. Contrast maths will never notice a button with no name; axe will never
@@ -326,9 +330,9 @@ how to point it somewhere else.
 | --- | --- |
 | `npm run lint` | ESLint over `src`, `tests` and the config files. |
 | `npm run typecheck` | `tsc --noEmit`. |
-| `npm test` | Vitest: 457 tests over the loader, filters, search, URL state, colour contrast, layout resilience and axe. |
+| `npm test` | Vitest: 511 tests over the loader, filters, search, URL state, colour contrast, layout resilience and axe. |
 | `npm run test:a11y` | The three accessibility suites on their own: contrast, layout, axe. |
-| `npm run test:data` | `pytest tests/python` — 212 tests, no network. |
+| `npm run test:data` | `pytest tests/python` — 213 tests, no network. |
 | `npm run build` | Typecheck, then a production build into `dist/`. |
 | `npm run preview` | Serve the production build locally. |
 | `npm run verify` | lint + test + build + data:validate in one shot. |
@@ -425,7 +429,7 @@ is real and deliberate-looking but undocumented in the source, so: the deployed
 the URL says `hey-nyc`. Nothing breaks — `VITE_BASE_PATH` is derived from the
 repository name at build time, so the subpath is always right — but if the
 repository is ever renamed, `base` changes with it and the asset URLs follow
-automatically. Only the two links in this README are hand-written.
+automatically. Only the three links in this README are hand-written.
 
 If you serve the build from a different subpath yourself, set `VITE_BASE_PATH`
 before building:
@@ -496,7 +500,7 @@ Read [`docs/contributing.md`](docs/contributing.md) first. The short version:
 
 - `src/types/location.ts` and `scripts/` are a **frozen contract**. They change
   together, or not at all.
-- Every behavioural change needs a test. There are 457 TypeScript tests and 212
+- Every behavioural change needs a test. There are 511 TypeScript tests and 213
   Python tests; match them.
 - Do not add ratings, hours, menus, prices, cuisine or photos. They are not in
   the source dataset, and inferring them turns a factual map into a guess.

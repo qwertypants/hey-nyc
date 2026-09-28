@@ -43,7 +43,7 @@ Out of scope:
 **Do not open a public issue.**
 
 Use GitHub's private reporting:
-**<https://github.com/eat-outside-nyc/eat-outside-nyc/security/advisories/new>**
+**<https://github.com/qwertypants/hey-nyc/security/advisories/new>**
 
 Please include the affected path or workflow, what an attacker could do, and how
 to reproduce it. If you have a proof of concept, keep it to what is needed to
@@ -62,9 +62,12 @@ change the workflows:
   on manual dispatch, not on `pull_request`, so it never runs a fork's code. It
   checks out the default branch, and the only thing it executes is
   `scripts/refresh_data.py` plus the npm scripts.
-- **The site is built with `contents: read` only.** `deploy.yml` holds
-  `pages: write` and `id-token: write` in the deploy job alone, and it never
-  pushes to the repository.
+- **No workflow can write to the repository but `refresh-data`.** `ci.yml` and
+  `deploy.yml` both hold `contents: read`, and neither ever pushes. `deploy.yml`
+  does hold `pages: write` and `id-token: write` — in its workflow-level
+  `permissions:` block, in the `build` job (which restates them on purpose, so
+  the extra scope is visible in a diff) and in the `deploy` job. That scope
+  uploads the `dist/` artifact to GitHub Pages; it cannot commit to `main`.
 - **No `pull_request_target`.** Nothing in `.github/workflows/` runs fork code
   with a privileged token.
 - **The data commit is pinned to the artifacts it validated.** `deploy.yml`

@@ -113,7 +113,10 @@ HTTP_TIMEOUT = 60.0
 MAX_ATTEMPTS = 4
 BACKOFF_BASE_SECONDS = 1.0
 BACKOFF_CAP_SECONDS = 30.0
-USER_AGENT = "eat-outside-nyc-walk-pipeline/1.0 (stdlib urllib)"
+#: Carries the repository URL so a DOT operator can see who is asking, and so the
+#: request is attributable. Matches `scripts/_common.py`, which names the same
+#: repository — the two agents are the same project and should identify as one.
+USER_AGENT = "eat-outside-nyc-walk-pipeline/1.0 (stdlib urllib; +https://github.com/qwertypants/hey-nyc)"
 
 #: Socrata refuses an `$offset` at or beyond this, and silently truncating a
 #: window would compute a baseline from a biased subset. Checked before every

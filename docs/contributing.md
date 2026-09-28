@@ -54,13 +54,15 @@ npm run data:refresh
 **Check everything before you push:**
 
 ```bash
-npm run verify            # lint + test + build + data:validate
-npm run test:data         # pytest, no network
+npm run verify            # lint + test + build + data:validate --strict + pytest
 ```
 
-`npm run verify` is exactly what `ci.yml` runs on your pull request, in the same
-order. If it passes locally, CI will pass — except for the parts CI does that you
-cannot do locally, which is only the build against a clean `node_modules`.
+`npm run verify` is what `ci.yml` runs on your pull request, in the same order:
+the app job's lint, test and build, then the data job's
+`validate_data.py --strict` and its Python tests. If it passes locally, CI will
+pass. The two differences are cosmetic by comparison — `ci.yml` names
+`npm run typecheck` as its own step, which `npm run build` already does via
+`tsc --noEmit`, and it runs its two jobs in parallel rather than in sequence.
 
 **No secrets, no accounts, no API keys.** If a change requires one, that change
 does not belong in this project.
@@ -151,7 +153,7 @@ Beyond what the tools enforce:
 
 ## Tests
 
-There are 457 TypeScript tests and 212 Python tests. Both suites run in
+There are 511 TypeScript tests and 213 Python tests. Both suites run in
 well under a second, so there is no excuse for skipping one.
 
 - **Every behaviour change needs a test.** Not "the existing tests still pass" —
@@ -249,6 +251,7 @@ index — read it before you change anything — is
 | [0002 — Hash the features, never the timestamp](adr/0002-hash-features-never-the-timestamp.md) | Why `content_hash()` is not to be touched, and why `git diff` is not the change detector |
 | [0003 — A keyless basemap and three runtime dependencies](adr/0003-keyless-basemap-three-runtime-deps.md) | OpenFreeMap, the three dependencies, the standard-library pipeline, and the whole "what not to add" list |
 | [0004 — Record decisions as ADRs](adr/0004-record-decisions-as-adrs.md) | Why this section exists |
+| [0005 — Hand directions to Google Maps over a web URL](adr/0005-google-maps-directions-handoff.md) | Why the app may link out to Google Maps without a key, and what "no Google" in the list above is actually forbidding |
 
 **Write an ADR before you write the code** if your change adds a runtime or
 pipeline dependency, alters the contract, touches `content_hash()` or the id
@@ -266,7 +269,7 @@ includes every bug fix is one nobody reads.
    fifteen-minute conversation before you write the code is cheaper than a
    rejected pull request.
 2. **Branch from `main`**, one topic per branch.
-3. **Run `npm run verify` and `npm run test:data`** before you push.
+3. **Run `npm run verify`** before you push. It runs the Python tests too.
 4. **Fill in the pull request template.** The frozen-contract checklist is the
    part that matters; tick it honestly rather than optimistically.
 5. **CI must be green.** `ci.yml` runs two independent jobs: lint, typecheck,

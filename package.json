@@ -25,7 +25,7 @@
     "data:clean": "python3 scripts/clean_data.py",
     "data:validate": "python3 scripts/validate_data.py",
     "data:refresh": "python3 scripts/refresh_data.py",
-    "verify": "npm run lint && npm run test && npm run build && npm run data:validate"
+    "verify": "npm run lint && npm run test && npm run build && npm run data:validate -- --strict && npm run test:data"
   },
   "dependencies": {
     "maplibre-gl": "^5.6.0",

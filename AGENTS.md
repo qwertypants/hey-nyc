@@ -41,24 +41,29 @@ One source of truth, or none.
 | [0002](docs/adr/0002-hash-features-never-the-timestamp.md) | `contentHash` covers published features, never a timestamp | touch `content_hash()`, the id recipe, or the refresh workflow |
 | [0003](docs/adr/0003-keyless-basemap-three-runtime-deps.md) | OpenFreeMap via one env var; three runtime deps; standard-library pipeline | add a dependency, swap the basemap, or add geocoding |
 | [0004](docs/adr/0004-record-decisions-as-adrs.md) | Decisions are ADRs, recalled from an index. Docs only, no CI gate | change the process itself |
-| [0005](docs/adr/0005-google-maps-directions-handoff.md) | Hand walking directions to Google Maps over a web URL, because `geo:` is a dead click on desktop | change `buildDirectionsUrl` |
+| [0005](docs/adr/0005-google-maps-directions-handoff.md) | The "Directions" link hands off to a key-free Google Maps URL, because `geo:` is a dead click on desktop | change the directions handoff, or act on "no Google" in the Never list below |
 | [0006](docs/adr/0006-lead-with-the-bi-annual-counts-not-the-live-feed.md) | Lead with the bi-annual counts, not the live feed. Never sum the twin sensor ids; freshness is derived, not read from `status` | touch `scripts/walk/`, the walk contract, or the walk refresh |
 
 ## Verify
 
 ```bash
-npm run verify      # lint + test + build + data:validate — exactly what CI runs
+npm run verify      # lint + test + build + data:validate --strict + pytest
 npm run test:data   # pytest, no network
 ```
 
-`npm run verify` is `ci.yml` in the same order. If it passes locally, CI passes.
+`npm run verify` is `ci.yml` in the same order — the app job's lint, test and
+build, then the data job's strict validation and Python tests. If it passes
+locally, CI passes. Neither differs in what it checks. The two differences are
+cosmetic by comparison — `ci.yml` names `npm run typecheck` as its own step,
+which `npm run build` already performs via `tsc --noEmit`, and it runs its two
+jobs in parallel rather than in sequence.
 
 There is **no automated formatter** — no Prettier dependency and no config. Do
 not "fix" formatting as a side effect of another change; match the surrounding
 file by hand. `npm run lint` and `npm run typecheck` are the only automated style
 gates.
 
-There are 928 TypeScript tests and 437 Python tests. Both suites run in well
+There are 937 TypeScript tests and 437 Python tests. Both suites run in well
 under a second. **Every behaviour change needs a test that would fail without
 your change** — not "the existing tests still pass".
 
@@ -102,7 +107,10 @@ without a new ADR.
 - **No accounts, sign-in, cookies, analytics or tracking.** This is why there is
   no backend.
 - **No proprietary, scraped or gated data source.** No Mapbox token, no Google,
-  no paid geocoder, no Yelp or Google Places.
+  no paid geocoder, no Yelp or Google Places. "No Google" means no Google
+  *data* — no key, no account, no SDK, no Places, nothing rendered from
+  Google's response. A plain outbound link is not data and is covered by
+  [ADR 0005](docs/adr/0005-google-maps-directions-handoff.md).
 - **No vendored basemap style JSON.** It is the thing that makes MapLibre drop
   the OpenStreetMap attribution.
 - **No new runtime npm dependency** without an ADR arguing the standard library

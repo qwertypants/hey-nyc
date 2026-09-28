@@ -26,8 +26,9 @@ its free API tier both want you to register and configure a key, and Protomaps' 
 positioning is that the hosted service is a paid product. That is a worse fit for a
 zero-config, fork-and-deploy open-source project.
 
-`demotiles.maplibre.org` is explicitly rejected: the brief forbids it, and rightly — it is
-a low-traffic documentation endpoint with no availability guarantee.
+`demotiles.maplibre.org` is explicitly rejected: it is a low-traffic documentation
+endpoint with no availability guarantee, which is the wrong foundation for a site
+that is supposed to keep working.
 
 ## Attribution
 
@@ -85,8 +86,10 @@ GeoJSON source we control.
 
 ## Geocoding
 
-Search geocoding is a separate concern from the basemap and is handled in
-`docs/data-pipeline.md` and `src/lib/geocode.ts`. The MVP uses **Nominatim** with explicit
+Search geocoding is a separate concern from the basemap, and nothing in the data
+pipeline touches it. It lives in [`src/lib/geocode.ts`](../src/lib/geocode.ts),
+and the deployment seam it needs is documented in the README under *One thing you
+should change before going live*. The MVP uses **Nominatim** with explicit
 user-initiated submission, a 1 request/second floor, and an NYC bounding box bias. Per
 Nominatim's usage policy there is deliberately **no keystroke-by-keystroke autocomplete
 against the public endpoint**; pressing Enter is the only trigger.

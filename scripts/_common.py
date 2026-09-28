@@ -52,7 +52,7 @@ HTTP_TIMEOUT = 60.0
 MAX_ATTEMPTS = 4
 BACKOFF_BASE_SECONDS = 1.0
 BACKOFF_CAP_SECONDS = 30.0
-USER_AGENT = "eat-outside-nyc-data-pipeline/1.0 (stdlib urllib; +https://github.com/eat-outside-nyc)"
+USER_AGENT = "eat-outside-nyc-data-pipeline/1.0 (stdlib urllib; +https://github.com/qwertypants/hey-nyc)"
 
 # --------------------------------------------------------------------------- rules
 

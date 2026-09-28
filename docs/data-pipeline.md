@@ -215,10 +215,6 @@ never the only thing you can see.
 
 Net effect: **2 437 rows -> 6 rejected -> 2 431 -> 2 000 establishments.**
 
-`postcode` is deliberately **not** a gate. `borough` is more reliable: one
-Manhattan record carries a `113` prefix and two Queens records carry `114`, so a
-zipcode rule would reject good data.
-
 ### Rejection precedence
 
 When a row breaks more than one rule, the code recorded is the first of:
@@ -245,8 +241,11 @@ primary one is bucketed, and all of them appear in
 | `-`, `N/A`, `NULL`, `NONE`, `NaN` and friends | Treated as null. Counted in `pipeline.nullishText`. |
 
 A 10-digit BBL is the real thing, but two live records legitimately geocode to 8
-and 9 digits, so the floor is 8 rather than 10. Anything shorter than 5 digits is
-junk.
+and 9 digits, so the floor cannot be 10 either. It is 5, because the only
+shorter values in the data are the degenerate `1` and `3` (`BBL_MIN_DIGITS` in
+`_common.py`); anything under 5 is junk. That is the *cleaning* floor, and it is
+a different threshold from the one `validate_data.py` applies to *published*
+values, which flags anything outside 8–10 digits as schema drift.
 
 ## The Sidewalk + Roadway merge
 
@@ -431,7 +430,7 @@ inactivity. If the site stops updating, check that first, then run
 
 ## Adding a new NYC Open Data layer
 
-Phase 3 of the brief. A second layer — open streets, park boundaries, anything
+A second layer — open streets, park boundaries, anything
 else on NYC Open Data — is a **separate ingestion with its own contract**, not an
 extension of the cafe logic. The rules below exist because the obvious shortcut
 produces the thing this project is trying not to be.
