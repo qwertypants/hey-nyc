@@ -15,6 +15,9 @@
  *   readBlocks(source): { selector, body }[]
  *   ruleAppliesTo(selector, className): boolean
  *   declarationsFor(scheme, className): Record<string, string>
+ *   specificity(selector): readonly [ids, classes, types]
+ *   matchesState(selector, state): boolean
+ *   cascadeFor(className, state): Record<string, string>
  *   lengthsToPx(scheme, value): number | null
  */
 
@@ -225,6 +228,166 @@ export function declarationsFor(scheme: Scheme, className: string): Record<strin
   const out: Record<string, string> = {};
   for (const block of readBlocks()) {
     if (!ruleAppliesTo(block.selector, className)) continue;
+    for (const decl of block.body.split(';')) {
+      const colon = decl.indexOf(':');
+      if (colon < 0) continue;
+      const property = decl.slice(0, colon).trim();
+      const value = decl.slice(colon + 1).trim();
+      if (property !== '' && value !== '') out[property] = value;
+    }
+  }
+  return out;
+}
+
+/** The index of the `)` closing the `(` at `open`, or the end of the string if unbalanced. */
+function matchingParen(source: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < source.length; i += 1) {
+    if (source[i] === '(') depth += 1;
+    else if (source[i] === ')') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return source.length;
+}
+
+/** The run of identifier characters at `from`, which is empty for a non-identifier start. */
+function identLength(source: string, from: number): number {
+  return /^[A-Za-z_][\w-]*/.exec(source.slice(from))?.[0].length ?? 0;
+}
+
+/**
+ * SELECTOR SPECIFICIFICITY, as a comparable `[ids, classes, types]` tuple.
+ *
+ * This exists because one audit in this repo already has to reason about a specificity
+ * inversion, and a per-rule reading of the stylesheet cannot see one: it can only see two
+ * rules, each of which is individually reasonable. The inversion only becomes visible when
+ * the rules are weighed against each other the way the cascade weighs them.
+ *
+ * The grammar covered is the one this stylesheet uses: ids, classes, attribute selectors,
+ * type selectors, pseudo-classes, and single-argument `:not()` / `:has()`. `:not()` and
+ * `:has()` contribute the specificity of their most specific argument rather than counting
+ * as a pseudo-class of their own — the detail that decides
+ * `.eoy-chip:hover:not(:has(:disabled))` (0,3,0) against `.eoy-chip:has(:checked)` (0,2,0).
+ * Pseudo-ELEMENTS and the forgiving `:is()` / `:where()` list arguments are not modelled;
+ * a selector using one would be scored approximately, and the stylesheet uses neither.
+ */
+export function specificity(selector: string): readonly [number, number, number] {
+  let ids = 0;
+  let classes = 0;
+  let types = 0;
+  let i = 0;
+
+  while (i < selector.length) {
+    const char = selector[i];
+    if (char === '#' || char === '.') {
+      if (char === '#') ids += 1;
+      else classes += 1;
+      i += 1 + identLength(selector, i + 1);
+      continue;
+    }
+    if (char === '[') {
+      // An attribute selector is (0,1,0) whatever it selects on, and its contents are never
+      // counted as ids, classes or types.
+      classes += 1;
+      const close = selector.indexOf(']', i);
+      i = close < 0 ? selector.length : close + 1;
+      continue;
+    }
+    if (char === ':') {
+      i += 1 + identLength(selector, i + 1);
+      if (selector[i] !== '(') {
+        classes += 1;
+        continue;
+      }
+      const end = matchingParen(selector, i);
+      const argument = specificity(selector.slice(i + 1, end));
+      // The pseudo-class itself is never worth less than (0,1,0), which is what keeps
+      // `:not(div)` scoring the same as `:not(.chip)`.
+      ids += argument[0];
+      classes += Math.max(argument[1], 1);
+      types += argument[2];
+      i = end + 1;
+      continue;
+    }
+    const type = identLength(selector, i);
+    if (type > 0) {
+      types += 1;
+      i += type;
+      continue;
+    }
+    // A combinator or a stray character. Whitespace and `> + ~` carry no weight.
+    i += 1;
+  }
+
+  return [ids, classes, types];
+}
+
+/**
+ * Whether a selector's pseudo-class conditions are all satisfied by an element in `state`.
+ *
+ * `state` is the set of pseudo-classes the element (or, for `:has()`, the ancestor the rule
+ * is asking about) is in, written without the leading colon: `['hover', 'checked']` is a
+ * selected filter chip under the pointer. A `:not()` argument must be entirely absent and a
+ * `:has()` argument entirely present, so `.eoy-chip:hover:not(:has(:disabled))` matches a
+ * hovered chip and not a hovered disabled one. A `:has()` read this way is the caller's claim
+ * about the ancestor, which is why the chip and its count badge are asked for separately
+ * rather than inferred from one another.
+ */
+export function matchesState(selector: string, state: readonly string[]): boolean {
+  let i = 0;
+  while (i < selector.length) {
+    const char = selector[i];
+    if (char !== ':') {
+      i += 1;
+      continue;
+    }
+    const name = selector.slice(i + 1, i + 1 + identLength(selector, i + 1));
+    i += name.length + 1;
+    if (selector[i] !== '(') {
+      if (!state.includes(name)) return false;
+      continue;
+    }
+    const end = matchingParen(selector, i);
+    const argument = selector.slice(i + 1, end);
+    i = end + 1;
+    if (name !== 'not' && name !== 'has') return false;
+    // Every pseudo-class inside the argument has to agree, and argument lists are not used
+    // in this stylesheet, so a single condition per functional pseudo-class is exact here.
+    const satisfied = matchesState(argument, state);
+    if ((name === 'not') === satisfied) return false;
+  }
+  return true;
+}
+
+/**
+ * The declarations that apply to an element carrying `className` while the pseudo-classes in
+ * `state` are active, resolved the way a browser resolves them: highest specificity first,
+ * with source order breaking a tie. `Array.prototype.sort` is stable, so ascending
+ * specificity followed by a last-one-wins merge is the cascade.
+ *
+ * `declarationsFor` above reads the last word in source order and ignores specificity; that is
+ * the right simplification for the layout audit, which only ever asks what a rule sets. This
+ * is the other half: it asks what the element is actually painted with when two rules meet.
+ */
+export function cascadeFor(className: string, state: readonly string[]): Record<string, string> {
+  const matching = readBlocks()
+    .map((block, index) => ({ block, index }))
+    .filter(
+      ({ block }) => ruleAppliesTo(block.selector, className) && matchesState(block.selector, state),
+    )
+    .sort((a, b) => {
+      const [aIds, aClasses, aTypes] = specificity(a.block.selector);
+      const [bIds, bClasses, bTypes] = specificity(b.block.selector);
+      if (aIds !== bIds) return aIds - bIds;
+      if (aClasses !== bClasses) return aClasses - bClasses;
+      if (aTypes !== bTypes) return aTypes - bTypes;
+      return a.index - b.index;
+    });
+
+  const out: Record<string, string> = {};
+  for (const { block } of matching) {
     for (const decl of block.body.split(';')) {
       const colon = decl.indexOf(':');
       if (colon < 0) continue;

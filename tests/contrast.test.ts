@@ -40,7 +40,7 @@ import {
 import { DINING_TYPE_STYLES } from '../src/map/style';
 // The stylesheet reader lives in tests/helpers so this audit and the layout-resilience audit
 // cannot drift into disagreeing about what the CSS says. See that file for why.
-import { CSS_NO_COMMENTS, SCHEMES, palette, token } from './helpers/stylesheet';
+import { CSS_NO_COMMENTS, SCHEMES, cascadeFor, palette, token } from './helpers/stylesheet';
 
 type Scheme = (typeof SCHEMES)[number];
 
@@ -378,6 +378,108 @@ describe('the literal chrome pairs hold in every scheme', () => {
     expect(headerRule).toContain('background: #000000');
     expect(headerRule).toContain('color: #ffffff');
     expect(headerRule).not.toContain('--eoy-text-inverse');
+  });
+});
+
+describe('a selected filter chip stays legible under the pointer', () => {
+  /**
+   * The one audit in this file that reads the CASCADE rather than the palette, because the bug
+   * it guards is invisible to a per-rule reading: each rule involved is reasonable on its own.
+   *
+   * A selected chip inverts to black on white, which is 21:1 and carries no argument. Hover
+   * fills a chip with 14% white, which over the black header is a sensible lift for a chip that
+   * is white-on-black. The two collide: `.eoy-chip:hover:not(:has(:disabled))` is (0,3,0) and
+   * `.eoy-chip:has(:checked)` is (0,2,0), so the hover fill wins on specificity alone, while
+   * `color: #000000` from the checked rule survives untouched. The result is a #242424 chip
+   * wearing black text — 1.35:1, and the label disappears at the moment the pointer arrives.
+   *
+   * So this resolves what a selected, hovered chip is actually painted with. The header is a
+   * literal #000000 in every scheme, which is why the fill is composited against it here rather
+   * than against a token.
+   */
+  const HEADER = '#000000';
+
+  /** The selected chip's fill with the pointer over it, as the browser composites it. */
+  function hoveredFill(): string {
+    const hovered = cascadeFor('eoy-chip', ['hover', 'checked']);
+    const background = hovered.background;
+    expect(background, 'the hovered selected chip sets no background').toBeDefined();
+    return flatten(background ?? '', HEADER);
+  }
+
+  it('the hover fill cannot win over the selected chip inversion', () => {
+    const { color } = cascadeFor('eoy-chip', ['hover', 'checked']);
+    const fill = hoveredFill();
+    const ratio = contrastRatio(color ?? '', fill);
+    expect(
+      ratio,
+      `a selected chip under the pointer is ${ratioText(color ?? '', fill)}, below the ${AA_TEXT}:1 floor — ` +
+        'the hover fill is winning over the inversion, so the chip is dark and its text is black',
+    ).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+
+  it('the count badge on that chip is legible too', () => {
+    // The badge keeps its own colour, so a hover fill that darkens under it takes the badge
+    // down with the label. It is asserted against the same composited fill, because the
+    // `:has(:checked)` ancestor is the only thing that decides what colour the badge is.
+    const { color } = cascadeFor('eoy-chip__count', ['checked']);
+    const fill = hoveredFill();
+    const ratio = contrastRatio(color ?? '', fill);
+    expect(
+      ratio,
+      `the count badge on a selected chip under the pointer is ${ratioText(color ?? '', fill)}, below the ${AA_TEXT}:1 floor`,
+    ).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+
+  it('a selected chip still responds to the pointer', () => {
+    // The fix must not be "ignore hover on the selected chip". A filter rail has to tell the
+    // user the control responds, so the hovered fill has to differ from the resting one.
+    const resting = cascadeFor('eoy-chip', ['checked']);
+    expect(hoveredFill()).not.toBe(resting.background);
+  });
+});
+
+describe('a selected filter chip stays legible while the rail is disabled', () => {
+  /**
+   * The same collision, reached the other way round, and the worse of the two.
+   *
+   * The rail is a single disabled `<fieldset>`, so EVERY chip in it matches `:has(:disabled)` —
+   * including the selected one, whose own radio is enabled precisely so it can stay selected. The
+   * disabled rule and `.eoy-chip:has(:checked)` are both (0,2,0), and the disabled rule is later
+   * in source, so it won the `color` and painted 62% white over the selected rule's white fill.
+   * White on white: 1:1, and the chip rendered as a blank pill with nothing in it but its count.
+   *
+   * This is not a corner case. `ready` gates the fieldset, so it holds for the whole load and
+   * permanently once the dataset has failed — which is a state the app designs for, with a
+   * "Try again" button. Verified in Chrome against the production build with the data request
+   * blocked: the selected chip in both groups was an empty white pill.
+   */
+  const HEADER = '#000000';
+
+  it('the selected chip is not painted with the disabled label colour', () => {
+    const { color, background } = cascadeFor('eoy-chip', ['checked', 'disabled']);
+    const fill = flatten(background ?? '', HEADER);
+    const ratio = contrastRatio(color ?? '', fill);
+    expect(
+      ratio,
+      `a selected chip in a disabled rail is ${ratioText(color ?? '', fill)} — the disabled rule ` +
+        'is winning the cascade over the selected chip inversion',
+    ).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+
+  it('a chip that is not selected still gets the disabled treatment', () => {
+    // Scoping the disabled rule must not throw the disabled look away: an unselected chip in a
+    // disabled rail is still unavailable, and that is carried by its dimmed label. A transparent
+    // fill means the black header shows through, so the header is the background to measure on.
+    const disabled = cascadeFor('eoy-chip', ['disabled']);
+    expect(disabled.background).toBe('transparent');
+    const composite = flatten(disabled.color ?? '', HEADER);
+    expect(
+      contrastRatio(composite, HEADER),
+      `an unselected chip in a disabled rail is ${ratioText(composite, HEADER)}, below the ${AA_TEXT}:1 floor`,
+    ).toBeGreaterThanOrEqual(AA_TEXT);
+    // Dimmer than the same chip with the rail live, which is what "disabled" looks like here.
+    expect(composite).not.toBe(cascadeFor('eoy-chip', []).color);
   });
 });
 

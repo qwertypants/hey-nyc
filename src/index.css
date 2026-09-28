@@ -770,6 +770,33 @@ button {
 }
 
 /*
+ * HOVERING A SELECTED CHIP MUST NOT UNDO THE INVERSION. This is the one place in the
+ * stylesheet where a hover fill and an inverted fill are both in force on the same box, and
+ * only one of them can win.
+ *
+ * The generic hover fill above is 14% white, which is the right lift for a chip that is
+ * white-on-black and composited over the black header. A SELECTED chip is not white-on-black —
+ * it carries `color: #000000` from the rule above — so that same 14% white leaves it with
+ * #242424 under black text: 1.35:1, and the count badge at 1.47:1. The label vanished the
+ * instant the pointer touched the chip the user had just selected.
+ *
+ * Specificity settles it, and settles it in the wrong direction: `:hover:not(:has(:disabled))`
+ * is (0,3,0) against (0,2,0) for `:has(:checked)`, so the hover fill wins whatever the source
+ * order. Excluding `:checked` from the generic rule would fix the contrast and throw away the
+ * hover feedback the rail needs, so the state is given its own fill instead — the same tone
+ * `--eoy-chip-hover` uses in the light scheme, which still holds 16.2:1 under the black label
+ * and 8.1:1 under the count.
+ *
+ * A literal rather than a token, exactly like the selected chip above it: the inverted chip is
+ * white in every scheme by design, and a token would let the dark scheme repaint the one chip
+ * whose whole job is to be unmistakable.
+ */
+.eoy-chip:has(:checked):hover:not(:has(:disabled)) {
+  background: #e2e2e2;
+  border-color: #e2e2e2;
+}
+
+/*
  * THE FOCUS RING BELONGS TO THE CHIP, NOT TO THE INPUT.
  *
  * The input is the thing a keyboard actually lands on, and it is a 1px `clip-path` sliver,
@@ -790,9 +817,33 @@ button {
   box-shadow: 0 0 0 2px #000000;
 }
 
-.eoy-chip:has(:disabled) {
+/*
+ * DISABLED, AND EXPLICITLY NOT WHILE SELECTED.
+ *
+ * The rail is one disabled `<fieldset>`, so a chip inside it matches `:has(:disabled)` even
+ * when its own radio is enabled — which is every chip, for as long as the dataset is loading
+ * and forever if it failed, since `ready` gates the fieldset and the error state is permanent.
+ * The selected chip is among them: it is `checked`, so `Chip` leaves its own input enabled, but
+ * the disabled rule is (0,2,0) exactly like `.eoy-chip:has(:checked)` and comes later in
+ * source, so it won the `color` and painted 62% WHITE over the selected rule's WHITE fill.
+ * The result was a blank white pill in both groups with only a grey count in it: on the error
+ * path the rail could not say which filter was selected, which is the one thing it exists to say.
+ *
+ * So the disabled look is scoped to chips that are not selected, and a selected chip keeps its
+ * inversion — which is also what `FilterRail` intends, noting that the selected chip is never
+ * disabled precisely so "All" stays reachable.
+ */
+.eoy-chip:has(:disabled):not(:has(:checked)) {
   border-color: rgb(255 255 255 / 20%);
   color: rgb(255 255 255 / 62%);
+  cursor: not-allowed;
+}
+
+/* A selected chip in a disabled rail: still inverted and still readable, and still saying
+   that it is unavailable — the dimmed border and the refused cursor are what is left of that,
+   because the label has to win over the state. */
+.eoy-chip:has(:checked):has(:disabled) {
+  border-color: rgb(0 0 0 / 20%);
   cursor: not-allowed;
 }
 
