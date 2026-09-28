@@ -2,22 +2,8 @@
 
 A map of every New York City food establishment that holds a Dining Out NYC licence for sidewalk or roadway dining. No account, no backend, no tracking — a static map and a GeoJSON file, rebuilt from NYC Open Data every morning.
 
-<!-- SCREENSHOT
-Drop a PNG here at docs/screenshot.png (that path is what this placeholder
-refers to). A 1600x1000 or larger screenshot of the map with a detail panel
-open is the right thing: it shows the basemap, the markers, and the licence type
-legend in one image. Replace the <img> tag below with:
-
-    <img src="docs/screenshot.png" alt="The Eat Outside NYC map, centred on
-    Manhattan, with a sidewalk-dining detail panel open." width="900">
-
-GitHub renders relative image paths in a README, so docs/screenshot.png works
-from the repository root without any configuration. Keep the file under about
-1 MB so the README stays fast to load.
--->
-
 <p align="center">
-  <img src="docs/screenshot.png" alt="Placeholder — see the HTML comment above. The Eat Outside NYC map, centred on Manhattan, with a sidewalk-dining detail panel open." width="900" />
+  <img src="docs/screenshot.png" alt="An illustrated aerial view of New York City, with Manhattan between the Hudson and East rivers and the Brooklyn and Queens bridges to the right, dotted with coloured map pins marking Dining Out NYC licence locations." width="900" />
 </p>
 
 <p align="center">
