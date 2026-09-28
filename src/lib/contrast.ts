@@ -37,7 +37,19 @@ interface Rgb {
 const SHORT_HEX = /^#([\da-f])([\da-f])([\da-f])$/i;
 const LONG_HEX = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i;
 const RGB_FN = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i;
-const RGB_ALPHA_FN = /^rgba\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)\s*[,/]\s*([\d.]+%?)\s*\)/i;
+/*
+ * The alpha channel, in BOTH the legacy comma form and the CSS Color 4 slash form, and in both
+ * `rgba(...)` and `rgb(...)` spellings — `rgb(255 255 255 / 14%)` is what this stylesheet
+ * writes, and it is why this is not `/^rgba\(/`.
+ *
+ * An earlier version of this matched only `rgba(`, so `rgb(r g b / a)` fell through to
+ * RGB_FN, which stops reading after the third channel and returned the colour at full
+ * strength. Every translucent pair in the palette then measured as opaque white on black —
+ * 21:1, comfortably passing — so `flatten` was a no-op on exactly the values it exists to
+ * measure, and the audit it guarded could not have failed. The failure was not a wrong number
+ * but an absent one.
+ */
+const ALPHA_CHANNEL = /[,/]\s*([\d.]+%?)\s*\)\s*$/i;
 
 /**
  * Reads a capture group that the caller has already established exists by matching. Written
@@ -123,20 +135,35 @@ export function isMeasurable(value: string): boolean {
 }
 
 /**
- * Flattens a translucent foreground over an opaque background, so a token like
+ * The alpha of a `rgb()`/`rgba()` colour as a fraction, or null when the value is not a colour
+ * function or carries no alpha. Separate from `flatten` so the "is it translucent at all?"
+ * question has one answer rather than being re-derived from a regex at each call site.
+ */
+function alphaOf(value: string): number | null {
+  if (RGB_FN.exec(value) === null) return null;
+  const raw = ALPHA_CHANNEL.exec(value)?.[1];
+  if (raw === undefined) return null;
+  return raw.endsWith('%') ? Number.parseFloat(raw) / 100 : Number(raw);
+}
+
+/**
+ * Flattens a translucent foreground over an opaque background, so a value like
  * `rgb(255 255 255 / 72%)` is auditable instead of unverifiable. Callers pass the resolved
  * background; returning the composite keeps the caller's assertion readable.
+ *
+ * MEASURE THE COMPOSITE, ALWAYS. `parseColor` reads a translucent colour as its channels at
+ * full strength, so handing `rgb(255 255 255 / 14%)` straight to `contrastRatio` returns the
+ * ratio for opaque white — an optimistic answer, never a pessimistic one, which is the worst
+ * direction for an audit to be wrong in. Every ratio in the palette is therefore a ratio
+ * between two flattened values, and `tests/contrast.test.ts` is where that is enforced.
  */
 export function flatten(foreground: string, background: string): string {
-  const top = RGB_ALPHA_FN.exec(foreground.trim());
-  if (top === null) return foreground;
-  const raw = group(top, 4);
-  const alpha = raw.endsWith('%') ? Number.parseFloat(raw) / 100 : Number(raw);
-  if (alpha >= 1) return foreground;
+  const fraction = alphaOf(foreground.trim());
+  if (fraction === null || fraction >= 1) return foreground;
   const under = parseColor(background);
   const over = parseColor(foreground);
   if (under === null || over === null) return foreground;
-  const mix = (a: number, b: number): number => Math.round(a * alpha + b * (1 - alpha));
+  const mix = (a: number, b: number): number => Math.round(a * fraction + b * (1 - fraction));
   const hex = (n: number): string => n.toString(16).padStart(2, '0');
   return `#${hex(mix(over.r, under.r))}${hex(mix(over.g, under.g))}${hex(mix(over.b, under.b))}`;
 }
