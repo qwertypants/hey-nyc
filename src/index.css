@@ -1855,7 +1855,24 @@ button {
   z-index: 35;
   display: flex;
   flex-direction: column;
+  /*
+   * The sheet never covers the header. `min(82%, 36rem)` was a percentage of the viewport,
+   * which is a number about the SCREEN and not about the sheet: at 320 × 568 it put the
+   * sheet's top edge at y 102 and the header's bottom edge at y 242, so opening a place hid
+   * the feature switcher and the entire filter rail behind it. A visitor who opened a place
+   * to check its licence type could not change borough without closing it again.
+   *
+   * The same `--eoy-header-height` the wide layout already reads, and the same argument: it is
+   * an upper bound, so this is at worst a few px shorter than the sheet could be. The sheet
+   * scrolls; the header does not move.
+   *
+   * The percentage stays, declared second. An engine that cannot parse a `calc()` containing
+   * a custom property discards this declaration and keeps the one above it, which is the
+   * arrangement `.eoy-search__panel` uses for `vh`/`dvh` and the reason the CSS_NO_COMMENTS
+   * audit can assert both are present.
+   */
   max-height: min(82%, 36rem);
+  max-height: calc(100% - var(--eoy-header-height) - var(--eoy-space-3));
   padding: var(--eoy-space-2) var(--eoy-space-4) var(--eoy-space-4);
   padding-bottom: calc(var(--eoy-space-4) + var(--eoy-safe-bottom));
   border-radius: var(--eoy-radius-xl) var(--eoy-radius-xl) 0 0;

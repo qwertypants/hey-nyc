@@ -833,4 +833,36 @@ describe('a phone in landscape is a short viewport, not a narrow one', () => {
         `any audit reads:\n  ${raised.join('\n  ')}`,
     ).toEqual([]);
   });
+
+  it('keeps the bottom sheet clear of the header, because 82% of a short screen is under it', () => {
+    // Measured at 320 × 568: the sheet's top edge was y 102 and the header's bottom edge was
+    // y 242. The sheet covered the feature switcher and the whole filter rail — the two
+    // controls that change what the sheet is about. `min(82%, 36rem)` is a percentage of the
+    // viewport, and the viewport is not the header's friend.
+    //
+    // The BASE rule, matched exactly rather than through `declarationsFor`, which walks every
+    // block that mentions the class and would return the `@media (min-width: 45rem)` override
+    // further down the file — a rule that already reads `--eoy-header-height`, so the
+    // assertion would pass before anything changed. The narrow layout is the one with the bug
+    // and the base selector is the only place it lives.
+    const base = readBlocks().find((b) => b.selector.trim() === '.eoy-sheet');
+    expect(base, 'there is no bare `.eoy-sheet` rule outside a media query').toBeDefined();
+
+    const heights = (base?.body.match(/max-height\s*:/g) ?? []).length;
+    expect(heights, 'the clamp is missing or has lost its percentage fallback').toBe(2);
+    expect(base?.body).toContain('min(82%, 36rem)');
+    expect(base?.body).toContain('var(--eoy-header-height)');
+  });
+
+  it('leaves the wide layout’s own clamp alone, because its geometry is different', () => {
+    // The side panel sits BESIDE the map with the bottom bar under it, not over it, so it
+    // subtracts `--eoy-space-5` rather than `--eoy-space-3`. Two different numbers for two
+    // different geometries is correct; a shared one would be wrong in one of them.
+    const wide = /@media \(min-width: 45rem\)\s*\{[\s\S]*?\.eoy-sheet\s*\{([\s\S]*?)\}/.exec(
+      CSS_NO_COMMENTS,
+    );
+    expect(wide?.[1], 'the wide-layout sheet clamp is missing').toBeDefined();
+    expect(wide?.[1]).toContain('var(--eoy-header-height)');
+    expect(wide?.[1]).toContain('var(--eoy-space-5)');
+  });
 });
