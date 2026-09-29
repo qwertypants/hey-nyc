@@ -282,4 +282,21 @@ describe('search', () => {
     await user.click(screen.getByRole('button', { name: /clear search/i }));
     expect(input().value).toBe('');
   });
+
+  it('asks the mobile keyboard for a Search key', async () => {
+    // The only outbound request this app makes is a Nominatim lookup, and Nominatim's usage
+    // policy forbids autocomplete — so the search is submit-only by design (see the module
+    // header). A submit-only search on a phone needs a Search key on the keyboard, and
+    // `type="text"` does not give it one: the visitor types an address and has to find the
+    // right-hand key to submit.
+    //
+    // `type="search"` would give the key and also give the platform's own clear button, which
+    // sits on top of `.eoy-search__clear` in Safari. `inputMode` is the attribute that asks for
+    // the one without the other, so the `type` assertion below is what holds that door shut.
+    renderApp({});
+    await screen.findAllByText(/3 places in this area/i);
+
+    expect(input()).toHaveAttribute('inputmode', 'search');
+    expect(input()).toHaveAttribute('type', 'text');
+  });
 });
