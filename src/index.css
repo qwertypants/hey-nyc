@@ -163,12 +163,38 @@
   --eoy-tap: 44px;
   --eoy-tap-sm: 32px;
 
-  --eoy-bar-height: 3.75rem;
+  /*
+   * THE HEADER'S HEIGHT, AS AN UPPER BOUND.
+   *
+   * `--eoy-header-height` is read by the detail sheet for its `max-height` (`src/App.tsx`
+   * renders the sheet inside `.eoy-app`, so the percentage resolves against the viewport).
+   * That makes an UNDER-statement a real bug and an over-statement a harmless one: too small
+   * slides the sheet up underneath the header, and on a 320 × 568 phone it opened over the
+   * feature switcher and the whole filter rail; too large costs the sheet a few px of height,
+   * and the sheet scrolls.
+   *
+   * So every term here is the WORST case for its row, and the media queries further down may
+   * only ever REDUCE one. That is what makes the value in this first `:root` block — the one
+   * every audit reads, per `tests/helpers/stylesheet.ts` — true everywhere rather than true
+   * in one place.
+   *
+   *   bar    4.25rem  a 44px control plus 12px of padding above and below. This is the WIDE
+   *                    bar's height, applied at every width, because the extra 8px costs a
+   *                    phone 8px of map and saves a second definition of the same number.
+   *   wrap   3.25rem  the second line the bar takes below 30rem, when the wordmark and Near me
+   *                    share the first line and search takes the whole second. Zeroed above
+   *                    30rem by a `min-width` query, never a `max-width` one.
+   *   extra  3.5 × 2  the switcher row and the filter rail. Zeroed on a short viewport, where
+   *                    both sit BESIDE the bar in one scrolling strip instead of under it.
+   */
+  --eoy-bar-height: 4.25rem;
+  --eoy-bar-wrap: 3.25rem;
   --eoy-rail-height: 3.5rem;
   --eoy-modes-height: 3.5rem;
-  --eoy-header-height: calc(
-    var(--eoy-bar-height) + var(--eoy-modes-height) + var(--eoy-rail-height)
-  );
+  --eoy-extra-rows: calc(var(--eoy-modes-height) + var(--eoy-rail-height));
+  /* On one line deliberately: `lengthsToPx` folds a `calc()` with a single-line regex, and
+     `tests/layout.test.ts` has to be able to add this sum up term by term. */
+  --eoy-header-height: calc(var(--eoy-bar-height) + var(--eoy-bar-wrap) + var(--eoy-extra-rows));
 }
 
 /* ==========================================================================
@@ -499,16 +525,10 @@ button {
 }
 
 /*
- * THE HEADER'S HEIGHT, derived rather than guessed.
- *
- * `--eoy-header-height` is used to keep the wide-layout detail sheet below the header
- * rather than under it. It used to be a hand-written `3.25rem` that quietly stopped being
- * true the moment a second row was added, so it is now built from the three rows' own
- * minimums, and those rows are given those minimums. Change one and the sheet follows.
- *
- *   bar   3.75rem = a 2.75rem (44px) control + 0.5rem of padding top and bottom
- *   modes 3.5rem  = the same control + 0.75rem of padding beneath it
- *   rail  3.5rem  = the same control + 0.75rem of padding beneath it
+ * THE BAR'S HEIGHT comes from `--eoy-bar-height`, which the header-height token above sums
+ * with the other two rows. Change the token and this row, the detail sheet's max-height and
+ * the short-viewport strip all follow. Do not write a length here: the header height is a sum
+ * of row heights, and a row that is not in the sum is a row the sheet will slide under.
  */
 .eoy-header__bar {
   display: flex;
@@ -2003,7 +2023,6 @@ button {
 
 @media (min-width: 45rem) {
   .eoy-header__bar {
-    min-height: 4.25rem;
     padding: var(--eoy-space-3) var(--eoy-space-4);
   }
 
@@ -2074,6 +2093,89 @@ button {
   .eoy-search {
     order: 3;
     flex: 1 1 100%;
+  }
+}
+
+/*
+ * ABOVE 30rem THE BAR IS ONE LINE, so the wrap term is released. A `min-width` query and not
+ * a `max-width` one, deliberately: the base value in `:root` is the worst case and this
+ * reduces it, which is the direction that keeps every stylesheet audit reading a true number.
+ * 30.0625rem rather than 30rem so the two queries cannot both be true at 480px.
+ */
+@media (min-width: 30.0625rem) {
+  :root {
+    --eoy-bar-wrap: 0rem;
+  }
+}
+
+/*
+ * A SHORT VIEWPORT — a phone in landscape, or a phone with a split-screen app beside it.
+ *
+ * At 844 × 390 the three stacked rows were 198px of a 390px screen: the map got 192px and the
+ * detail sheet got 194px, both measured. A width query cannot fix this, because 844px is
+ * WIDE — `min-width: 45rem` is true here, so the desktop branch was the one that ran, and it
+ * is the one that stacks three rows.
+ *
+ * So the three rows become ONE horizontally-scrolling strip. This is the same decision
+ * `.eoy-modes` and `.eoy-rail__scroll` already make, for the same reason: they scroll rather
+ * than wrap so the header cannot change height, because a header that changes height resizes
+ * the map, and a map that resizes loses your place.
+ *
+ * `40rem` (640px) rather than `34rem` (544px) because 320 × 568 is a real viewport — the
+ * original iPhone SE, still in service — and it was measured at 42.6% header, the worst
+ * portrait case. A strip at 568px tall leaves the map 456px instead of 326px.
+ */
+@media (max-height: 40rem) {
+  :root {
+    --eoy-extra-rows: 0rem;
+  }
+
+  .eoy-header {
+    display: flex;
+    align-items: center;
+    gap: var(--eoy-space-2);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .eoy-header::-webkit-scrollbar {
+    display: none;
+  }
+
+  /*
+   * `flex: none` on each row, and the same reason `.eoy-modes__option` says `0 1 auto`:
+   * a flex item defaults to `min-width: auto` and so refuses to shrink below its content's
+   * min-content width. In a strip that would push the rail's chips off the right edge again,
+   * which is the bug the note at `.eoy-app__body` records having already been fixed once.
+   */
+  .eoy-header__bar,
+  .eoy-modes,
+  .eoy-rail {
+    flex: none;
+    min-height: var(--eoy-bar-height);
+  }
+
+  /*
+   * THE INNER SCROLLERS ARE RELEASED. Two horizontal scrollers stacked is a gesture trap: a
+   * touch that begins inside the inner one is consumed by it, so the visitor cannot swipe the
+   * strip by dragging across the filter chips — the largest thing on the screen. The strip is
+   * now the only scroller, and it scrolls all three rows together.
+   */
+  .eoy-modes,
+  .eoy-rail__scroll {
+    overflow-x: visible;
+  }
+
+  /*
+   * And the rail's fade goes with it. The mask is sized to the rail's own box, which with
+   * `overflow-x: visible` is now only as wide as its content — so it would fade the rail's
+   * last chip at the CONTENT's edge rather than at the viewport's, pointing the visitor at
+   * more chips that are not there. The strip's own right edge is the honest cue.
+   */
+  .eoy-rail__scroll {
+    -webkit-mask-image: none;
+    mask-image: none;
   }
 }
 

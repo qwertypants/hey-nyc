@@ -32,6 +32,7 @@ import {
   declarationsFor,
   elementDeclarations,
   lengthsToPx,
+  palette,
   readBlocks,
   resolve,
   ruleAppliesTo,
@@ -296,7 +297,11 @@ describe('reflow (WCAG 2.2 SC 1.4.10, AA)', () => {
   it('the filter rail scrolls rather than wrapping, so the header cannot resize the map', () => {
     // A wrapping rail changes the header height, which resizes the map, and a map that
     // resizes when you pick a filter loses the place you were looking at.
-    const rail = declarationsFor('light', 'eoy-rail__scroll');
+    //
+    // The BASELINE rule, not `declarationsFor`: on a short viewport the rail's own scrolling
+    // is released so the header can scroll as one strip, and that release is a later rule
+    // with the same selector. This is about what the rail does at every other size.
+    const rail = baselineDeclarations('eoy-rail__scroll');
     expect(rail['overflow-x']).toBe('auto');
     expect(declarationsFor('light', 'eoy-rail__chips')['flex-wrap']).toBeUndefined();
   });
@@ -345,6 +350,35 @@ function px(value: string, where: string): number {
   return out;
 }
 
+/**
+ * The declarations of the rule whose selector is EXACTLY this class, first match wins.
+ *
+ * `declarationsFor` merges every rule that matches the class with the last one winning, and
+ * `readBlocks` does not record whether a rule it handed back was inside a media query: it
+ * flattens an at-rule by leaving the `@media` text on the FIRST rule inside it only, so every
+ * later rule in the same query comes back looking like a top-level rule. An override that is
+ * true only on a short viewport therefore arrives at `declarationsFor` as though it were the
+ * element's ordinary behaviour — which is how the short-viewport strip's release of the rail's
+ * `overflow-x` read as the rail's base value, and how the `mask-image: none` that goes with it
+ * read as "the rail no longer fades".
+ *
+ * Correct when the question is "what does this rule say", wrong when the question is "what is
+ * this element's baseline". Both users below want the baseline, and in each case the base rule
+ * is declared above the query that overrides it.
+ */
+function baselineDeclarations(className: string): Record<string, string> {
+  const block = readBlocks().find((b) => b.selector.trim() === `.${className}`);
+  const out: Record<string, string> = {};
+  for (const decl of (block?.body ?? '').split(';')) {
+    const colon = decl.indexOf(':');
+    if (colon < 0) continue;
+    const property = decl.slice(0, colon).trim();
+    const value = decl.slice(colon + 1).trim();
+    if (property !== '' && value !== '') out[property] = value;
+  }
+  return out;
+}
+
 describe('focus not obscured (WCAG 2.2 SC 2.4.11, AA)', () => {
   /**
    * The one part of 2.4.11 this suite can read: the axis the filter rail scrolls on.
@@ -357,7 +391,7 @@ describe('focus not obscured (WCAG 2.2 SC 2.4.11, AA)', () => {
    */
   it('a focused filter chip is scrolled clear of the fade the rail ends in', () => {
     const fade = /calc\(100%\s*-\s*([\d.]+rem)\)/.exec(
-      declarationsFor('light', 'eoy-rail__scroll')['mask-image'] ?? '',
+      baselineDeclarations('eoy-rail__scroll')['mask-image'] ?? '',
     )?.[1];
     if (fade === undefined) throw new Error('the rail no longer fades its right edge, so this check is stale');
     const fadePx = px(fade, 'the rail fade');
@@ -614,5 +648,189 @@ describe('every custom property the stylesheet reads is one it defines', () => {
     for (const token of ['--eoy-header-height', '--eoy-space-4', '--eoy-tap']) {
       expect(read.has(token), `nothing reads ${token}, so the token audit may be hollow`).toBe(true);
     }
+  });
+});
+
+/**
+ * The whole body of an at-rule block, with its braces matched.
+ *
+ * `CSS_NO_COMMENTS.slice(indexOf(query), indexOf('}', ...))` — the obvious way to read one —
+ * stops at the FIRST closing brace after the query, which for an at-rule that opens with
+ * `:root { … }` is the end of that nested block and not the end of the query. Every rule this
+ * suite wants to read about a query is after it, so that slice reads a `:root` and nothing
+ * else, and the assertions below pass on an empty block.
+ */
+function atRuleBlock(query: string): string {
+  const start = CSS_NO_COMMENTS.indexOf(query);
+  if (start < 0) return '';
+  let depth = 0;
+  for (let i = CSS_NO_COMMENTS.indexOf('{', start); i < CSS_NO_COMMENTS.length; i += 1) {
+    const char = CSS_NO_COMMENTS[i];
+    if (char === '{') depth += 1;
+    else if (char === '}' && (depth -= 1) === 0) return CSS_NO_COMMENTS.slice(start, i + 1);
+  }
+  return '';
+}
+
+/**
+ * Every `:root` rule in the stylesheet, with the media queries it sits inside.
+ *
+ * `readBlocks()` CANNOT be used for this. It flattens a nested block by leaving the at-rule
+ * text on the FIRST rule inside it, so `:root` directly after `@media (…) {` comes back with
+ * the at-rule on its selector (and is then dropped, because the selector starts with `@`) while
+ * every later rule in the same query comes back looking top-level. `palette()` reads the FIRST
+ * `:root` block only for the same reason, which is precisely the hole this audit is written to
+ * close: a query that RAISED a token would be invisible to every reader in
+ * `tests/helpers/stylesheet.ts` while being true in a browser.
+ *
+ * So this walks the braces itself: into `@media`, over `@keyframes`, and one level at a time.
+ */
+function rootBlocks(): { context: string; body: string }[] {
+  const out: { context: string; body: string }[] = [];
+  const conditions: string[] = [];
+  let i = 0;
+  while (i < CSS_NO_COMMENTS.length) {
+    const open = CSS_NO_COMMENTS.indexOf('{', i);
+    if (open < 0) break;
+    const head = CSS_NO_COMMENTS.slice(i, open).trim();
+    let depth = 0;
+    let close = open;
+    for (; close < CSS_NO_COMMENTS.length; close += 1) {
+      const char = CSS_NO_COMMENTS[close];
+      if (char === '{') depth += 1;
+      else if (char === '}' && (depth -= 1) === 0) break;
+    }
+    if (head.startsWith('@media')) {
+      conditions.push(head);
+      i = open + 1; // descend: the rules inside a query are the ones being audited
+      continue;
+    }
+    if (head.startsWith('@')) {
+      i = close + 1; // @keyframes and friends: their percentages are not rules
+      continue;
+    }
+    if (head.split(',').some((compound) => compound.trim() === ':root')) {
+      out.push({ context: conditions.join(' '), body: CSS_NO_COMMENTS.slice(open + 1, close) });
+    }
+    conditions.pop();
+    i = close + 1;
+  }
+  return out;
+}
+
+/**
+ * THE HEADER, ON A SCREEN THAT IS NOT TALL.
+ *
+ * The header is three stacked rows — the bar, the feature switcher, the filter rail — and
+ * every one of them has a `min-height`. On a 390 × 844 phone that is 28.7% of the screen,
+ * which is fine. On an 844 × 390 phone in landscape it was 50.8%: the map got 192px and the
+ * detail sheet got 194px, and both were measured, not estimated.
+ *
+ * The fix is a `max-height` query that turns the three rows into ONE horizontally-scrolling
+ * strip. That reuses an idiom this stylesheet already uses twice (`.eoy-modes` and
+ * `.eoy-rail__scroll` both scroll rather than wrap, precisely so the header cannot change
+ * height), and it is the only arrangement in which a 390px-tall screen has room for a map.
+ */
+describe('a phone in landscape is a short viewport, not a narrow one', () => {
+  const SHORT = '@media (max-height: 40rem)';
+
+  it('has a short-viewport query, because no width query can describe a landscape phone', () => {
+    // 844 × 390 is WIDE. Both existing queries are `max-width: 30rem` (a narrow phone) and
+    // `min-width: 45rem` (a desktop). Neither is true at 844 × 390, so a header that is
+    // sized only by width queries is sized for the wrong axis entirely.
+    expect(CSS_NO_COMMENTS).toContain(SHORT);
+  });
+
+  it('collapses the header to one horizontally-scrolling row', () => {
+    const block = atRuleBlock(SHORT);
+    expect(block, `${SHORT} is not in the stylesheet`).not.toBe('');
+    // The strip, not a wrap. A wrapped header changes height when a filter chip wraps, which
+    // resizes the map — the exact failure the two existing scrollers were written to avoid.
+    expect(block).toMatch(/overflow-x:\s*auto/);
+    expect(block).not.toMatch(/flex-wrap:\s*wrap/);
+  });
+
+  it('stops the rail and the switcher from becoming nested scrollers inside the strip', () => {
+    // Two horizontal scrollers stacked is a gesture trap: a touch that starts inside the
+    // inner one is consumed by it, and the visitor cannot reach the outer strip's content by
+    // swiping on the part of the screen they are looking at. The inner `overflow-x` has to
+    // be released in the same block that introduces the outer one.
+    const block = atRuleBlock(SHORT);
+    expect(block).toMatch(/overflow-x:\s*visible/);
+  });
+
+  it('reports a header height that is an upper bound at every viewport', () => {
+    // `--eoy-header-height` is read by the detail sheet for its `max-height`. A token that
+    // UNDER-states the header slides the sheet up underneath it, which is how the sheet came
+    // to open over the filter rail on a 320px phone. An over-estimate costs the sheet a few
+    // px of height and the sheet scrolls, so the invariant is: the value declared in the
+    // FIRST `:root` block — the one every audit reads — is the WORST case, and the media
+    // queries below it may only ever REDUCE it.
+    //
+    // The real render, against the token, at three viewports:
+    //   390 × 844  real 223px   token 232px   (+9)
+    //   320 × 568  real 112px   token 120px   (+8)
+    //   844 × 390  real  68px   token 120px   (+52)
+    const values = palette('light');
+    const header = values['--eoy-header-height'];
+    expect(header, '--eoy-header-height is not declared in the first :root block').toBeDefined();
+
+    // All three terms, by name. A hand-written length would satisfy `lengthsToPx` and fail
+    // this, which is the point: the failure this guards is the one that happened, a token
+    // that quietly stopped being the sum of the rows it claims to describe.
+    for (const term of ['--eoy-bar-height', '--eoy-bar-wrap', '--eoy-extra-rows']) {
+      expect(header, `--eoy-header-height must be the sum of its rows, and omits ${term}`)
+        .toContain(`var(${term})`);
+    }
+
+    // And the arithmetic actually adds up, which catches a term that is summed twice or a
+    // `calc()` with a stray operator. `lengthsToPx` resolves the var() chain and sums.
+    const px = (name: string): number => {
+      const found = lengthsToPx('light', values[name] ?? '');
+      expect(found, `${name} is not a length the helper can measure`).not.toBeNull();
+      return found as number;
+    };
+    expect(px('--eoy-header-height')).toBeCloseTo(
+      px('--eoy-bar-height') + px('--eoy-bar-wrap') + px('--eoy-extra-rows'),
+      0,
+    );
+  });
+
+  it('has no media query that raises a token above its first-:root value', () => {
+    // The mirror of the test above, and the one that keeps the audits honest.
+    // `tests/helpers/stylesheet.ts` reads the FIRST `:root` block only (see `rootBlocks`
+    // above), so a query that RAISED a token would be invisible to every audit while being
+    // true in the browser — a second `:root` that contradicts the first is precisely the
+    // failure mode that helper was written to prevent. The walk-stylesheet comment above
+    // `tests/walk-stylesheet.test.ts` records finding exactly that.
+    //
+    // So: every `:root`-level override in the stylesheet must be a REDUCTION. The two that
+    // exist after this task are `--eoy-bar-wrap` (45rem query, 3.25rem → 0rem) and
+    // `--eoy-extra-rows` (40rem height query, 7rem → 0rem); the dark and enhanced-contrast
+    // blocks recolour tokens rather than resize them and are skipped by the length pattern.
+    const values = palette('light');
+    const raised: string[] = [];
+
+    for (const block of rootBlocks()) {
+      if (block.context === '') continue; // the first `:root` is the value everything is read against
+      for (const match of block.body.matchAll(/(--[\w-]+)\s*:\s*([\d.]+)rem\s*;/g)) {
+        const name = match[1] as string;
+        const override = Number.parseFloat(match[2] as string);
+        const base = values[name];
+        if (base === undefined) continue;
+        const basePx = lengthsToPx('light', base);
+        if (basePx === null) continue; // a calc(), or a colour: not a length override
+        const overridePx = override * 16;
+        if (overridePx > basePx) {
+          raised.push(`${name}: the first :root says ${base} but a query raises it to ${match[2]}rem`);
+        }
+      }
+    }
+
+    expect(
+      raised,
+      `these media queries raise a token above the first-:root value, which is the only value ` +
+        `any audit reads:\n  ${raised.join('\n  ')}`,
+    ).toEqual([]);
   });
 });
