@@ -312,12 +312,16 @@ appears
   different words. They are never summed, never normalised against each other,
   and the UI must not present them on a shared scale or a shared legend without
   saying which is which.
-- **There is no fault gate yet, and the gap is visible.** A counter that reports
-  a row every 15 minutes with every reading `0` is caught by nothing except the
-  zero-median branch, which publishes it as `quiet` — the honest floor, and not
-  the right answer for a dead sensor. The all-zero-run and `direction`-split
-  detectors the analysis recommends are not implemented; see the open questions
-  in [`walk-data-analysis.md`](../walk-data-analysis.md#open-questions-for-the-maintainer).
+- **The fault gate arrived as its own decision, not with this one.** A counter
+  that reports a row every 15 minutes with every reading `0` is caught by nothing
+  except the zero-median branch, which publishes it as `quiet` — the honest
+  floor, and not the right answer for a dead sensor, and worse than that once
+  `active` is derived from freshness. The all-zero-run detector is
+  [ADR 0007](0007-fault-a-counter-publishing-zeroes-is-not-fresh.md), which adds
+  a fifth staleness state. The `direction`-split detector the analysis also
+  recommends is still not implemented, and deliberately so: there is no case of
+  one in the committed snapshot to tune it against. See the open questions in
+  [`walk-data-analysis.md`](../walk-data-analysis.md#open-questions-for-the-maintainer).
 - **The daily gate has a known blind spot on the historical half.** Its
   `contentHash` covers `historical-locations.geojson` only, so a fix to an older
   survey column that no site's *latest* survey depends on changes

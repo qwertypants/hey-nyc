@@ -397,16 +397,19 @@ than an honest blank.
 
 ## Freshness
 
-`staleness` is **derived**, never taken from a source column.
+`staleness` is **derived**, never taken from a source column. Four of the five
+states are about the clock; one is not.
 
-| State | Condition on the newest observation |
+| State | Condition |
 | --- | --- |
-| `fresh` | at most 6 hours old |
-| `stale` | more than 6 hours, at most 24 hours old |
-| `offline` | more than 24 hours old |
+| `fresh` | newest observation at most 30 hours old |
+| `faulted` | `fresh` by age, but 7 or more consecutive New York days with no nonzero reading anywhere in them |
+| `stale` | more than 30 hours old, at most 7 days |
+| `offline` | more than 7 days old |
 | `unavailable` | there is no observation to measure |
 
-`active` is true only when `staleness` is `fresh`.
+`active` is true only when `staleness` is `fresh`, so a faulted counter is never
+active. See [ADR 0007](adr/0007-fault-a-counter-publishing-zeroes-is-not-fresh.md).
 
 Why derived: `status` is `raw` for **all 1 505 220 pedestrian rows**, so it cannot
 distinguish a counter carrying a crowd from one carrying nothing at all, and
@@ -417,25 +420,58 @@ as "live until 2025-12-31". First and last observation are derived from the
 counts, and for a counter that has stopped reporting entirely the window has no
 rows at all, so an 8-row extent probe supplies the dates.
 
-One thing to know about these thresholds: they are **generous on purpose**. A
-false "no recent reading" on a live counter is a lie about the data, which is
-the one thing this feature must never tell. The cost is that they are also
-slow — at the last build all four counters were past the 6-hour window and two
-of them were 113 and 371 days past, and the practical result is that
-`activePedestrianCounters` is frequently 0.
+One thing to know about these thresholds: the three age buckets are in units of
+the feed's **daily batch**, not of a live stream. The counts dataset is not a
+15-minute stream whatever its description implies — measured 2026-09-28,
+`rowsUpdatedAt` was 7.6h old and the newest pedestrian row ~14h old, and DOT
+writes the data once a day. Thresholds built on the intuition of a live feed
+would label both working counters `stale` and tell a visitor their street
+counter is not reporting when the batch simply has not run yet. So 30 hours is
+one batch cycle, generously, and 7 days is "gone, or the feed is broken".
 
-> **Known rough edge.** `_common.py` also declares `OFFLINE_AFTER = 30 days`,
-> which is **not** wired into `staleness_for`. The shipped behaviour is
-> `fresh`/`stale`/`offline` at 6 h / 24 h / 24 h. The constant should either be
-> used or removed; it is not a fourth state.
+An `OFFLINE_AFTER = 30 days` constant used to sit alongside these and was **not**
+wired into `staleness_for`. It has been removed: the right instinct applied to
+the wrong question, since it wanted a fourth bucket rather than a better
+threshold. Do not reintroduce it.
 
-The other known gap is a fault gate. Concrete Plant Park is publishing a row
-every 15 minutes, all of them `0`, and the label it gets is `quiet` — the honest
-floor, but not the right answer for a dead sensor. `status` will not catch it,
-`granularity` will not catch it, and neither will the freshness check. The
-all-zero-run detector and the trailing `|in − out| / (in + out)` ratio the
-analysis recommends would, and neither is implemented yet. See the open
-questions in
+### `faulted`: a counter that reports zeroes is not reporting
+
+A fault is not silence, and the four age-based states cannot see one. Measured on
+the 2026-09-28 snapshot, over the two counters that publish at all:
+
+| Counter | Rows | Zero rows | Nonzero days | Longest run of days with no nonzero reading |
+| --- | --- | --- | --- | --- |
+| Concrete Plant Park | 10 634 | 10 012 | 6 of 57 | **45** |
+| Emmons Ave | 10 636 | 4 357 | — | **1** |
+
+Concrete Plant Park emits its full quarter-hourly grid, 192 rows a day, every
+reading `0`, for 45 days. By recency alone it is the *freshest* thing in the
+dataset: its newest row is an hour old. Before the gate it published
+`staleness: "fresh"`, `active: true` and `activity: "quiet"` — a dead counter
+drawn as a live, empty park, which is the most plausible wrong answer available.
+
+`faulted` fires only on a **run of whole New York days containing no nonzero
+reading**, never on a count of zeroes. That is what separates 45 from 1, and
+`FAULT_ZERO_DAYS` is set at 7 on the *healthy* counter's noise floor rather than
+on the failed one: a threshold at or below 1 would flag a working sensor on a
+quiet day, and that false positive would cost a real counter its label every time
+the weather turned.
+
+A day with no rows at all is a gap, not a zero day, and terminates the run rather
+than extending it — silence is the age buckets' question, and letting a gap count
+as zeroes would let a counter that stopped reporting drift toward `faulted` and be
+described as one that is reporting zeroes.
+
+The state is drawn with a `0` in a hollow ring rather than the `x` that `offline`
+and `unavailable` share. Those two may share a shape because both mean the source
+is telling us nothing, so they are one fact at two ages. A faulted counter is
+reporting, on schedule, a measurement of zero — and a map read without labels has
+to carry that difference on shape alone.
+
+Still not implemented, and deliberately so: the trailing `|in − out| / (in + out)`
+ratio the analysis recommends, which would catch a counter reporting a lopsided
+split. There is no case of one in the committed snapshot, so any constant for it
+would be invented rather than measured. See the open questions in
 [`walk-data-analysis.md`](walk-data-analysis.md#open-questions-for-the-maintainer).
 
 ## Missing data is not zero
