@@ -731,38 +731,53 @@ function atRuleBlock(query: string): string {
  * close: a query that RAISED a token would be invisible to every reader in
  * `tests/helpers/stylesheet.ts` while being true in a browser.
  *
- * So this walks the braces itself: into `@media`, over `@keyframes`, and one level at a time.
+ * RECURSIVE DESCENT, not a flat scan with a cursor. A flat scan has a failure mode that is
+ * invisible from the test: after descending into a query and consuming its first inner block,
+ * the next `{` it finds belongs to the FOLLOWING block, and the text it reads as that block's
+ * head still carries the previous query's closing `}`. That head matches neither `@media` nor
+ * `:root`, so the scan skips the whole following block — and since the two queries that reduce
+ * `--eoy-bar-wrap` and `--eoy-extra-rows` sit either side of a `:root`, that is exactly the
+ * pair this audit exists to police. Setting `--eoy-extra-rows: 8rem` in the short-viewport
+ * query, where the base says 7rem, did not fail this test until the scan was replaced.
+ *
+ * Each call returns the index just past the block it consumed, so there is no cursor to leave
+ * in the wrong place and no `}` to skip by hand.
  */
 function rootBlocks(): { context: string; body: string }[] {
   const out: { context: string; body: string }[] = [];
-  const conditions: string[] = [];
-  let i = 0;
-  while (i < CSS_NO_COMMENTS.length) {
-    const open = CSS_NO_COMMENTS.indexOf('{', i);
-    if (open < 0) break;
-    const head = CSS_NO_COMMENTS.slice(i, open).trim();
+
+  /** The index just past the `}` that closes the `{` at `open`. */
+  const matchBrace = (from: number): number => {
     let depth = 0;
-    let close = open;
-    for (; close < CSS_NO_COMMENTS.length; close += 1) {
-      const char = CSS_NO_COMMENTS[close];
+    for (let i = from; i < CSS_NO_COMMENTS.length; i += 1) {
+      const char = CSS_NO_COMMENTS[i];
       if (char === '{') depth += 1;
-      else if (char === '}' && (depth -= 1) === 0) break;
+      else if (char === '}' && --depth === 0) return i + 1;
     }
-    if (head.startsWith('@media')) {
-      conditions.push(head);
-      i = open + 1; // descend: the rules inside a query are the ones being audited
-      continue;
+    return CSS_NO_COMMENTS.length;
+  };
+
+  const visit = (from: number, to: number, context: string): void => {
+    let i = from;
+    while (i < to) {
+      const open = CSS_NO_COMMENTS.indexOf('{', i);
+      if (open < 0 || open >= to) return;
+      const head = CSS_NO_COMMENTS.slice(i, open).trim();
+      const after = matchBrace(open);
+      if (head.startsWith('@media')) {
+        // Descend: a `:root` inside a query is in force inside that query, and that is the
+        // only reason this function exists.
+        visit(open + 1, after - 1, context === '' ? head : `${context} ${head}`);
+      } else if (!head.startsWith('@') && head.split(',').some((c) => c.trim() === ':root')) {
+        out.push({ context, body: CSS_NO_COMMENTS.slice(open + 1, after - 1) });
+      }
+      // `@keyframes` and friends are skipped whole: their percentages are not selectors, and
+      // descending into them would find heads like `0%`.
+      i = after;
     }
-    if (head.startsWith('@')) {
-      i = close + 1; // @keyframes and friends: their percentages are not rules
-      continue;
-    }
-    if (head.split(',').some((compound) => compound.trim() === ':root')) {
-      out.push({ context: conditions.join(' '), body: CSS_NO_COMMENTS.slice(open + 1, close) });
-    }
-    conditions.pop();
-    i = close + 1;
-  }
+  };
+
+  visit(0, CSS_NO_COMMENTS.length, '');
   return out;
 }
 
@@ -804,7 +819,20 @@ describe('a phone in landscape is a short viewport, not a narrow one', () => {
     // swiping on the part of the screen they are looking at. The inner `overflow-x` has to
     // be released in the same block that introduces the outer one.
     const block = atRuleBlock(SHORT);
-    expect(block).toMatch(/overflow-x:\s*visible/);
+    // BOTH inner scrollers, named. Asserting that `overflow-x: visible` appears *somewhere*
+    // in the block passes as soon as ONE of them is released, which is the half-fix that
+    // leaves the gesture trap in place on the rail — the larger of the two, and the one a
+    // thumb actually lands on.
+    for (const inner of ['eoy-modes', 'eoy-rail__scroll']) {
+      const released = new RegExp(
+        `\\.${inner}[^{}]*\\{[^{}]*overflow-x:\\s*visible`,
+      ).test(block);
+      expect(
+        released,
+        `.${inner} is still a horizontal scroller inside the strip, so a touch that starts on ` +
+          'it is consumed by it and the visitor cannot swipe the strip by dragging across it.',
+      ).toBe(true);
+    }
   });
 
   it('reports a header height that is an upper bound at every viewport', () => {
@@ -1005,6 +1033,23 @@ describe('every tap target gets the tap treatment, not just the <button> ones', 
    * ARE `<button>`s and are already covered by the global rule — ten redundant declarations,
    * and a test that fails on correct code. `tagsCarrying` is what tells the two apart.
    */
+  it('the global `button` rule is what gives every button the treatment', () => {
+    // The per-class cases below pass a `<button>` through `tags.has('button')`, which is
+    // correct — a button needs no declaration of its own. But that exemption makes every one
+    // of them blind to the global rule being deleted, and it is the global rule doing the
+    // work. So it is asserted directly, once, here.
+    //
+    // Found by mutation: removing `touch-action: manipulation` from the `button` rule left all
+    // 78 tests green, because nothing in the suite claimed that rule existed.
+    const globalButton = readBlocks().find((b) => b.selector.trim() === 'button');
+    expect(globalButton, 'there is no bare `button` rule in the stylesheet').toBeDefined();
+    expect(
+      /(^|[;{\s])touch-action:\s*manipulation/.test(globalButton?.body ?? ''),
+      'the global `button` rule lost `touch-action: manipulation`, so every button in the app ' +
+        'pays the 300ms tap delay while every per-class test below still passes.',
+    ).toBe(true);
+  });
+
   it.each(INTERACTIVE)('.%s gets touch-action: manipulation', (className) => {
     // Resolve through the existing INHERITS map, so a modifier is measured against the base
     // class that carries the declaration. `.eoy-button--ghost` sets only colours; its tap
