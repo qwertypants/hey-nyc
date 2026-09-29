@@ -189,8 +189,23 @@ describe('the vocabulary is total over the frozen contract, and `unavailable` is
     // A glyph outside the `Noto Sans` stack renders as nothing, which would remove the
     // non-colour channel silently — the worst direction for this to fail in.
     for (const staleness of STALENESS_STATES) {
-      expect(STALENESS_STYLES[staleness].glyph).toMatch(/^[+x]$/);
+      expect(STALENESS_STYLES[staleness].glyph).toMatch(/^[+x0]$/);
     }
+  });
+
+  it('a faulted counter is not drawn like a silent one — the glyph carries the difference', () => {
+    // `offline` and `unavailable` may share a shape: both mean the source is not telling
+    // us anything, so they are one fact at two ages. `faulted` is not that — the counter
+    // is reporting, on schedule, a measurement of zero — so on a map read without labels it
+    // has to be distinguishable from the silent states by shape alone.
+    expect(STALENESS_STYLES.faulted.glyph).toBe('0');
+    expect(STALENESS_STYLES.faulted.glyph).not.toBe(STALENESS_STYLES.offline.glyph);
+    expect(STALENESS_STYLES.faulted.glyph).not.toBe(STALENESS_STYLES.unavailable.glyph);
+    // The core stays hollow: nothing was counted on the street, which is the other half
+    // of the claim and the part a `+` would get wrong.
+    expect(STALENESS_STYLES.faulted.coreOpacity).toBe(0);
+    // ...and it is NOT `fresh`, so it does not read as a live counter.
+    expect(STALENESS_STYLES.faulted.glyph).not.toBe(STALENESS_STYLES.fresh.glyph);
   });
 
   it('the sensor geometry is a ring, and the core is inside it — never a solid disc', () => {

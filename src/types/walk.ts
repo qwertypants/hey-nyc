@@ -33,8 +33,22 @@ export const SENSOR_ACTIVITIES = ['unavailable', ...ACTIVITY_LEVELS] as const;
 export type SensorActivity = (typeof SENSOR_ACTIVITIES)[number];
 export type SensorLevel = (typeof ACTIVITY_LEVELS)[number];
 
-/** Freshness, derived from the age of the newest observation. */
-export const STALENESS_STATES = ['fresh', 'stale', 'offline', 'unavailable'] as const;
+/**
+ * Freshness, derived from the age of the newest observation.
+ *
+ * `faulted` is the one state that is not about the clock. A counter that emits
+ * its full quarter-hourly grid, every reading 0, for a run of days, is answering
+ * the recency question perfectly — it spoke minutes ago — while measuring
+ * nothing. Without this state `active` (derived from staleness) publishes a dead
+ * counter as the most live thing on the map.
+ *
+ * It is a STALENESS state rather than an activity level because it is a claim
+ * about the counter, not about the street: `quiet` would say the path is empty,
+ * and what is actually true is that nobody is counting it.
+ *
+ * See docs/adr/0007 for the decision and the alternatives it was chosen over.
+ */
+export const STALENESS_STATES = ['fresh', 'faulted', 'stale', 'offline', 'unavailable'] as const;
 export type Staleness = (typeof STALENESS_STATES)[number];
 
 /** Long-term direction of a manual count site, first survey to most recent. */

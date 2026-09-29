@@ -161,6 +161,53 @@ def history_rows(values, *, total=None) -> list[dict]:
     return rows
 
 
+#: One New York civil day of quarter-hourly readings, both twins, both
+#: directions. 96 quarters is the shape a working counter publishes; a day
+#: containing a DST change publishes 92 or 100.
+def civil_day_rows(day, *, until=None, total: int = 0, quiet=None) -> list[dict]:
+    """Every quarter-hourly reading in one New York civil day.
+
+    Walks the WALL CLOCK from local midnight rather than adding a fixed 24
+    hours, so a day that contains a DST transition publishes the right number of
+    quarters instead of silently running long or short. `until` truncates the
+    day, which is what the current partial batch looks like. `quiet` is a local
+    `(from_hour, to_hour)` window forced to 0, because a park path reads zero at
+    3am and 200 at 3pm and a gate that cannot tell that is a bad gate.
+    """
+    moment = datetime(day.year, day.month, day.day, tzinfo=W.NYC_TZ)
+    rows: list[dict] = []
+    while moment.date() == day:
+        if until is not None and moment > until:
+            break
+        value = 0 if quiet and quiet[0] <= moment.hour < quiet[1] else total
+        rows.extend(twin_count_rows(moment.strftime("%Y-%m-%dT%H:%M:%S.000"), value))
+        moment += timedelta(minutes=15)
+    return rows
+
+
+def days_of_zeroes(end_utc: str, days: int) -> list[dict]:
+    """`days` CONSECUTIVE New York civil days of zero readings, newest at `end_utc`.
+
+    A fault, as the source presents one: the counter keeps its heartbeat. It
+    emits its full quarter-hourly grid every day, every reading 0, indefinitely.
+    `staleness_for` cannot see this — the newest observation is minutes old, so
+    by recency alone the counter is the freshest thing in the dataset, which is
+    exactly how a dead counter gets published as a live quiet one.
+
+    The days are CIVIL days, because that is what the gate counts. An earlier
+    version of this fixture laid down 24-hour blocks anchored on the UTC instant,
+    and each block straddled midnight — six of them produced seven zero-days, so
+    the gate fired one day early and the test blamed the gate. The anchor day's
+    own readings are truncated at `end_utc`, which is what a daily batch
+    truncated partway through today looks like, and it still counts as a day.
+    """
+    end = datetime.fromisoformat(end_utc.replace("Z", "+00:00")).astimezone(W.NYC_TZ)
+    rows = civil_day_rows(end.date(), until=end)
+    for back in range(1, days):
+        rows.extend(civil_day_rows(end.date() - timedelta(days=back)))
+    return rows
+
+
 def build(sensor_rows, count_rows, *, now=NOW, extent=None, **kwargs):
     return build_sensors.build(
         list(sensor_rows), list(count_rows), now=now, extent=extent, **kwargs
@@ -894,6 +941,180 @@ def test_fresh_stale_offline_and_never_observed():
     assert never["activity"] == "unavailable"
     assert never["observedAt"] is None
     assert never["lastObservation"] is None
+
+
+# --------------------------------------------------------------------------- the fault gate
+#
+# A fault is not silence. The failing counter in the real snapshot is Concrete
+# Plant Park, and its shape is specific: 10 634 pedestrian rows across 57 days,
+# 10 012 of them 0, nonzero on 6 days, and a 45-day run of consecutive days with
+# no nonzero reading anywhere in them. The healthy counter, Emmons Ave, has a
+# longest such run of ONE day.
+#
+# So the evidence separates 45 from 1, and the constant below sits an order of
+# magnitude from both. Recency cannot see any of this: the newest row is an hour
+# old, so by age alone the dead counter is the freshest thing published. That is
+# the whole reason the gate exists, and these tests are what stop it regressing
+# into the `quiet` label the zero-median branch currently hands it.
+
+
+def test_a_counter_reporting_only_zeroes_is_faulted_not_fresh():
+    """The Concrete Plant Park case: a heartbeat of zeroes.
+
+    Seven consecutive complete days of zero readings, newest an hour before NOW.
+    The rows are all there — the counter is not silent, it is empty — and every
+    one of them is a real measurement that happens to be 0, so none of the
+    missing-observation rules apply.
+    """
+    properties = properties_of(build(twin_rows(), days_of_zeroes("2026-09-28T08:00:00Z", 7)))
+
+    assert properties["staleness"] == "faulted"
+    # A fault is not an active counter. `active` is already derived from
+    # staleness in the build, so this needs no special case of its own.
+    assert properties["active"] is False
+    # The heartbeat is the evidence, so the recency that made it look fresh is
+    # still published: the counter did speak, an hour ago.
+    assert properties["lastObservation"] == "2026-09-28T08:00:00Z"
+
+
+def test_a_faulted_counter_still_publishes_its_last_measurement():
+    """`faulted` is a state, not a deletion.
+
+    Every other non-fresh state keeps the number it last saw. A reader who
+    wants to know that a counter is reporting zeros still needs the zeros, and
+    dropping them would lose the only thing the counter is still telling us.
+    """
+    properties = properties_of(build(twin_rows(), days_of_zeroes("2026-09-28T08:00:00Z", 7)))
+
+    assert properties["count"] == 0
+    assert properties["observedAt"] is not None
+    assert properties["staleness"] == "faulted"
+
+
+@pytest.mark.parametrize(
+    "days",
+    [
+        1,   # Emmons Ave's longest real all-zero day run. A working counter.
+        2,
+        6,   # One day short of the gate.
+    ],
+)
+def test_a_shorter_run_of_zero_days_is_not_a_fault(days):
+    """The gate is a RUN of days, not a single quiet day.
+
+    A counter that reads zero for a day is a counter with a quiet day. Without
+    this a gate set at one would flag Emmons Ave — the one working counter in
+    the snapshot — on a coin-flip day.
+    """
+    rows = days_of_zeroes("2026-09-28T08:00:00Z", days) + history_rows([100] * 8)
+    properties = properties_of(build(twin_rows(), rows))
+
+    assert properties["staleness"] != "faulted"
+
+
+@pytest.mark.parametrize("days", [7, 45])
+def test_the_gate_opens_at_seven_days_and_stays_open(days):
+    """Both ends of the measured separation, asserted rather than assumed."""
+    properties = properties_of(build(twin_rows(), days_of_zeroes("2026-09-28T08:00:00Z", days)))
+
+    assert properties["staleness"] == "faulted"
+
+
+def test_a_working_counter_is_never_faulted_however_long_it_runs():
+    """The real Emmons Ave case: a long window of real traffic, none of it zero.
+
+    This is the counter that must never be caught, so it is asserted over a
+    window longer than the whole fault run it would have to false-positive on.
+    Emmons' measured longest all-zero day run is 1; Concrete Plant Park's is 45.
+    Every day also carries a genuinely empty midnight hour, so the days are not
+    uniformly busy and a gate that counted ROWS rather than days would see zeros
+    here too.
+    """
+    end = datetime.fromisoformat("2026-09-28T09:00:00+00:00").astimezone(W.NYC_TZ)
+    rows: list[dict] = []
+    for back in range(50):
+        rows.extend(civil_day_rows(end.date() - timedelta(days=back), total=284, quiet=(0, 4)))
+    properties = properties_of(build(twin_rows(), rows))
+
+    assert properties["staleness"] == "fresh"
+    assert properties["active"] is True
+
+
+def test_a_zero_hour_in_an_otherwise_busy_counter_is_not_a_fault():
+    """The gate counts whole DAYS, so a quiet hour cannot trip it.
+
+    A park path reads zero at 3am and 284 at 3pm. A gate that looked at buckets,
+    or at rows, would call that a fault; a gate that counts days containing no
+    nonzero reading calls it Tuesday. Ten such days, every one of them a
+    four-hour hole in an otherwise busy counter.
+    """
+    end = datetime.fromisoformat("2026-09-28T12:00:00+00:00").astimezone(W.NYC_TZ)
+    rows: list[dict] = []
+    for back in range(10):
+        rows.extend(civil_day_rows(end.date() - timedelta(days=back), total=284, quiet=(0, 4)))
+    properties = properties_of(build(twin_rows(), rows))
+
+    assert properties["staleness"] != "faulted"
+
+
+def test_the_fault_threshold_lives_in_the_contract_and_not_in_the_build():
+    """One number, one home.
+
+    Same shape as the offset-ceiling test above: a constant that decides what
+    gets published belongs to the contract, so the validator, the UI and the
+    report all read the same one.
+    """
+    assert hasattr(W, "FAULT_ZERO_DAYS")
+    assert W.FAULT_ZERO_DAYS == 7
+    assert "FAULT_ZERO_DAYS" not in build_sensors.__dict__
+
+
+def test_faulted_is_in_the_published_set_on_both_sides():
+    """The gate's output is a published value, so both contract halves move."""
+    assert "faulted" in W.STALENESS_STATES
+
+    types_source = (REPO_ROOT / "src" / "types" / "walk.ts").read_text(encoding="utf-8")
+    assert "faulted" in types_source
+
+
+def test_the_validator_accepts_faulted_and_still_rejects_a_typo():
+    """A new allowed value is a change to a frozen set, checked in both directions.
+
+    `validate_walk` reads its allowed set from the contract, so growing the set
+    must not disable the check that catches a misspelling of it.
+    """
+    outcome = build(twin_rows(), days_of_zeroes("2026-09-28T08:00:00Z", 7))
+    assert outcome.features[0]["properties"]["staleness"] == "faulted"
+
+    result = validate_walk.validate(
+        geojson=outcome.geojson(), latest=outcome.latest, min_sensors=0
+    )
+    assert not [message for message in result.errors if "staleness" in message]
+
+    broken = copy.deepcopy(outcome.geojson())
+    broken["features"][0]["properties"]["staleness"] = "faulteddd"
+    messages = " ".join(
+        validate_walk.validate(geojson=broken, latest=outcome.latest, min_sensors=0).errors
+    )
+    assert "is not one of" in messages
+
+
+def test_the_active_invariant_holds_for_a_faulted_counter():
+    """`active` is derived, not chosen, and the validator already says so.
+
+    A faulted counter is not active. If the gate ever produced `faulted` with
+    `active: true` the map would draw a live marker for a dead counter, which is
+    the entire failure this gate exists to prevent.
+    """
+    outcome = build(twin_rows(), days_of_zeroes("2026-09-28T08:00:00Z", 7))
+    assert outcome.features[0]["properties"]["active"] is False
+
+    broken = copy.deepcopy(outcome.geojson())
+    broken["features"][0]["properties"]["active"] = True
+    messages = " ".join(
+        validate_walk.validate(geojson=broken, latest=outcome.latest, min_sensors=0).errors
+    )
+    assert "active must be exactly" in messages
 
 
 def test_a_counter_whose_data_is_older_than_the_window_is_offline_not_unavailable():

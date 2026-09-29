@@ -154,7 +154,10 @@ describe('every colour the walk feature paints is measurable, and clears 1.4.11'
   it('finds one data colour per trend and per activity, so the table cannot lose a row', () => {
     expect(DATA_COLORS.length).toBe(TREND_STATES.length + SENSOR_ACTIVITIES.length + 4);
     expect(ACTIVITY_LEVELS).toHaveLength(4);
-    expect(STALENESS_STATES).toHaveLength(4);
+    // Five as of the fault gate: fresh, faulted, stale, offline, unavailable. This is a
+    // tripwire on the contract's arity, so it fails loudly when a state is added rather
+    // than when someone remembers to extend the colour table.
+    expect(STALENESS_STATES).toHaveLength(5);
   });
 
   it('the counter ring halo is the SURFACE colour, and the dark ring beside it is the boundary', () => {

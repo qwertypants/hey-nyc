@@ -274,6 +274,36 @@ export const SENSOR_BUSY: SensorFeature = sensor({
   coords: { lat: 40.807, lng: -73.924 },
 });
 
+/**
+ * A FAULTED counter: reporting on schedule, every reading zero, for weeks.
+ *
+ * Modelled on the real Concrete Plant Park — 10 012 of 10 634 pedestrian rows
+ * are 0, nonzero on 6 of 57 days, a 45-day run of days with no nonzero reading.
+ *
+ * Deliberately NOT in `SENSOR_FEATURES`. That list is the collection several
+ * tests count against, and adding a fifth sensor to it would churn tests about
+ * layer limits and geometry that have nothing to do with the fault gate. This
+ * fixture is passed in explicitly by the tests that are about staleness.
+ */
+export const SENSOR_FAULTED: SensorFeature = sensor({
+  id: 'wsk-0000000000b5',
+  name: 'Concrete Plant Park',
+  counterSerial: 'YAH22104563',
+  sensorIds: ['300040736', '300043073'],
+  borough: 'Bronx',
+  staleness: 'faulted',
+  activity: 'quiet',
+  count: 0,
+  expected: 0,
+  percentile: 50,
+  ratio: null,
+  observationCount: 7,
+  lastObservation: NOW_ISO,
+  observedAt: NOW_ISO,
+  active: false,
+  coords: { lat: 40.799, lng: -73.92 },
+});
+
 /** Offline since 7 June 2026: no observation, no count, no activity. */
 export const SENSOR_OFFLINE: SensorFeature = sensor({
   id: 'wsk-0000000000b3',

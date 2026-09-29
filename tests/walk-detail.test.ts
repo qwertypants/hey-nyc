@@ -25,6 +25,7 @@ import {
   NOW_MS,
   PATTERNS_RAW,
   SENSOR_BUSY,
+  SENSOR_FAULTED,
   SENSOR_COLLECTION,
   SENSOR_NO_HISTORY,
   SENSOR_OFFLINE,
@@ -218,6 +219,20 @@ describe('a counter sheet: the freshness is the headline', () => {
   it('a fresh counter says the reading is current', () => {
     const detail = sensorDetail(sensorProps(SENSOR_BUSY), null, NOW_MS);
     expect(detail.headline).toBe('Last reading just now');
+  });
+
+  it('a faulted counter does NOT read like a working one', () => {
+    // The whole failure this state exists to prevent: a dead counter whose newest
+    // observation is minutes old, printed as "Last reading just now" with "0 people"
+    // underneath. Every fact on the sheet is true and the combination reads as an
+    // empty park rather than a broken instrument.
+    const detail = sensorDetail(sensorProps(SENSOR_FAULTED), latestFor(SENSOR_FAULTED.id), NOW_MS);
+    expect(detail.headline).not.toMatch(/Last reading/);
+    expect(detail.headline).toContain('Reporting zero');
+    // The number is still published — every other non-fresh state keeps its last
+    // measurement — but the headline has already said not to believe it.
+    const values = new Map(detail.facts.map((fact) => [fact.label, fact.value]));
+    expect(values.get('Latest 15-minute bucket')).toBe('0 people in the last 15-minute bucket');
   });
 
   it('says the automated feed is a daily batch, not a live stream', () => {

@@ -139,6 +139,8 @@ PIPELINE_KEYS = (
     "zeroMedianIntervals",
     "aboveZeroReadingInZeroBaseline",
     "suppressedOfflineBaselines",
+    "faultedCounters",
+    "longestZeroDayRun",
 )
 
 
@@ -644,6 +646,23 @@ def build(
         # would publish it as `unavailable` — "we have never heard of it" —
         # which loses the only fact a reader needs about a dead counter.
         staleness = C.staleness_for(last_observation, moment_now)
+
+        # A fault is a second, independent answer to "is this counter working?".
+        # Recency above says a counter that emitted 192 rows of zeroes an hour
+        # ago is `fresh`, and `active` is derived from staleness, so without this
+        # a dead counter is published as the most live thing on the map. The
+        # gate only opens on a RUN of days, so it needs a real run to close —
+        # see FAULT_ZERO_DAYS in the contract for the measured separation.
+        zero_run = C.fault_run_days(
+            (moment, bucket.get("total")) for moment, bucket in series.items()
+        )
+        if staleness == "fresh" and zero_run >= C.FAULT_ZERO_DAYS:
+            staleness = "faulted"
+            counters_dict["faultedCounters"] += 1
+        counters_dict["longestZeroDayRun"] = max(
+            counters_dict["longestZeroDayRun"], zero_run
+        )
+
         key = baseline_key(observed_at) if observed_at is not None else ("", "")
         values = history_for(series, key, exclude=observed_at) if observed_at else []
         baseline = build_baseline(values)

@@ -219,7 +219,7 @@ export const ACTIVITY_STYLES: Readonly<Record<SensorActivity, ActivityStyle>> = 
 
 export const ACTIVITY_STYLE_LIST: readonly ActivityStyle[] = ACTIVITIES;
 
-export type StalenessMark = 'plus' | 'cross' | 'none';
+export type StalenessMark = 'plus' | 'cross' | 'zero' | 'none';
 
 export interface StalenessStyle {
   readonly staleness: Staleness;
@@ -234,7 +234,7 @@ export interface StalenessStyle {
    * the non-colour channel silently — the worst direction for this to fail in. Asserted at
    * module load below.
    */
-  readonly glyph: '+' | 'x';
+  readonly glyph: '+' | 'x' | '0';
   /** How opaque the core is. 0 is a hollow ring: nothing was measured there. */
   readonly coreOpacity: number;
   /** Outer ring weight, so a long-dead counter is visibly heavier than a late one. */
@@ -292,10 +292,34 @@ const UNREAD: StalenessStyle = {
   shapeDescription: 'Two concentric rings around an empty middle, with an x',
 };
 
-const STALENESS: readonly StalenessStyle[] = [FRESH, STALE, OFFLINE, UNREAD];
+/**
+ * `faulted` prints a `0`, and that is the whole argument for the glyph.
+ *
+ * `offline` and `unavailable` both print an `x` in a hollow ring, and they can
+ * afford to: both mean the source is not telling us anything, so they are the
+ * same fact at different ages. A FAULTED counter is not that. It is reporting,
+ * on schedule, a measurement of zero, for a run of days — a different claim, and
+ * one a reader must not have to open a detail sheet to discover. So it keeps the
+ * hollow core (`coreOpacity: 0`: nothing was counted on the street) but marks
+ * the middle with the number the counter actually published.
+ */
+const FAULTED: StalenessStyle = {
+  staleness: 'faulted',
+  label: 'Reporting zero',
+  shortLabel: 'Zero',
+  mark: 'zero',
+  glyph: '0',
+  coreOpacity: 0,
+  ringWidth: 3,
+  doubleRing: true,
+  shapeDescription: 'Two concentric rings around an empty middle, with a 0',
+};
+
+const STALENESS: readonly StalenessStyle[] = [FRESH, STALE, FAULTED, OFFLINE, UNREAD];
 
 export const STALENESS_STYLES: Readonly<Record<Staleness, StalenessStyle>> = {
   fresh: FRESH,
+  faulted: FAULTED,
   stale: STALE,
   offline: OFFLINE,
   unavailable: UNREAD,

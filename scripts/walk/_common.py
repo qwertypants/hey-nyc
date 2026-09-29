@@ -41,7 +41,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -366,7 +366,32 @@ MIN_SAMPLES = 7
 FRESH_WITHIN = timedelta(hours=30)
 STALE_AFTER = timedelta(days=7)
 
-STALENESS_STATES = ("fresh", "stale", "offline", "unavailable")
+#: A fourth state, and the only one that is not about the CLOCK.
+#:
+#: `fresh`/`stale`/`offline` answer "how long since this counter last spoke?".
+#: A faulted counter answered that question perfectly — minutes ago — while
+#: reporting nothing but zeroes for a month. Recency cannot see it, and the
+#: consequence is worse than a stale label: `active` is derived from staleness,
+#: so a dead counter was published as the FRESHEST, most live thing on the map.
+#:
+#: The measured evidence, from the 2026-09-28 snapshot, 57 days of pedestrian
+#: rows over the two counters that report at all:
+#:
+#:     Concrete Plant Park   10 012 of 10 634 rows are 0, nonzero on 6 of 57
+#:                           days, longest run of days with no nonzero
+#:                           reading anywhere in them: 45
+#:     Emmons Ave            4 357 of 10 636 rows are 0, longest such run: 1
+#:
+#: So the two counters separate 45-to-1, and the constant below sits an order of
+#: magnitude from both. It is set on the HEALTHY counter's noise floor, not on
+#: the failed one: a threshold at or below 1 flags a working sensor on a quiet
+#: day, and the false positive would cost a real counter its label every time
+#: the weather turned. Do not lower it without re-measuring both numbers above.
+FAULT_ZERO_DAYS = 7
+
+#: The fifth state, and the only one that is not a function of the clock. See
+#: docs/adr/0007 for the decision and the alternatives it was chosen over.
+STALENESS_STATES = ("fresh", "faulted", "stale", "offline", "unavailable")
 
 #: Historical trend buckets, from the first survey to the most recent.
 TREND_STATES = ("rising", "falling", "flat", "insufficient")
@@ -909,6 +934,46 @@ def staleness_for(observed_at: datetime | None, now: datetime) -> str:
     if age <= STALE_AFTER:
         return "stale"
     return "offline"
+
+
+def fault_run_days(series: Iterable[tuple[datetime, int | None]]) -> int:
+    """Consecutive New York days, back from the newest, with NO nonzero reading.
+
+    A day counts as a zero day only if it actually HAS readings and every one of
+    them is 0. A day with no rows is a gap, and a gap terminates the run rather
+    than extending it: silence is `staleness_for`'s question to answer, and
+    letting a gap count as a zero would let a counter that stopped reporting
+    drift toward `faulted` and be described as a counter that is reporting
+    zeroes.
+
+    The sum across both directions is what is tested, not each direction alone.
+    A counter whose `in` and `out` legs each read 0 on different quarters would
+    be faulting itself into existence, and per-direction splits are not how this
+    gate decides anything.
+    """
+    per_day: dict[date, list[int | None]] = {}
+    for moment, total in series:
+        per_day.setdefault(to_nyc_wall_clock(moment).date(), []).append(total)
+
+    run = 0
+    for day in sorted(per_day, reverse=True):
+        values = per_day[day]
+        # A day with only absent counts is not a day of zeroes. It is a day the
+        # source did not fill in, which is a different claim.
+        if not values or all(value is None for value in values):
+            break
+        if any(value for value in values):
+            break
+        run += 1
+    return run
+
+
+def is_faulted(series: Iterable[tuple[datetime, int | None]]) -> bool:
+    """Whether this counter is transmitting zeroes rather than measurements.
+
+    See FAULT_ZERO_DAYS for the measurement the threshold comes from.
+    """
+    return fault_run_days(series) >= FAULT_ZERO_DAYS
 
 
 # --------------------------------------------------------------------------- history column names

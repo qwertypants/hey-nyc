@@ -82,10 +82,11 @@ export function boroughLine(borough: string): string {
 }
 
 /**
- * THE SENSOR HEADLINE, and the staleness sentence in one place. The three cases are distinct
- * claims and are worded as three:
+ * THE SENSOR HEADLINE, and the staleness sentence in one place. The cases are distinct claims
+ * and are worded as distinct claims:
  *
  *   fresh / stale  "Last reading 14 hours ago"        there is a number, and how old it is
+ *   faulted        "Reporting zero for 45 days"       there is a number, and it is meaningless
  *   offline        "Offline since 7 June 2026"        there is a number, and it stopped
  *   unavailable    "No recent reading"                 there is no number at all
  *
@@ -93,6 +94,12 @@ export function boroughLine(borough: string): string {
  * sentence says so. A reader who sees "Offline since June 2026" and "Last reading 14 hours
  * ago" side by side can tell that one counter is a fortnight into silence and the other is
  * a day's batch behind — which is the difference the four published counters actually have.
+ *
+ * `faulted` is worded separately from all three, because it is the case that the count cannot
+ * be trusted and the recency cannot be believed. It reads "Last reading 14 hours ago" like a
+ * working counter and then, underneath, "0 people in the last 15-minute bucket" — every one
+ * of those facts true and the combination a lie. The sentence says the counter is reporting
+ * ZEROES, so the number below it is read as a broken instrument rather than an empty street.
  */
 export function stalenessSentence(display: DisplaySensor, now: number): string {
   const { staleness, sensor } = display;
@@ -105,6 +112,9 @@ export function stalenessSentence(display: DisplaySensor, now: number): string {
   }
   if (staleness === 'unavailable') {
     return 'No recent reading';
+  }
+  if (staleness === 'faulted') {
+    return 'Reporting zero every day, which is a fault rather than a measurement';
   }
   return `Last reading ${relativeAge(observed, now)}`;
 }

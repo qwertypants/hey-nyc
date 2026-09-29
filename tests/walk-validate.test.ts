@@ -21,6 +21,7 @@ import {
   validateLatest,
   validateSensorCollection,
 } from '../src/data/walk/validate';
+import { STALENESS_STATES } from '../src/types/walk';
 import {
   HISTORICAL_COLLECTION,
   LATEST_RAW,
@@ -299,10 +300,33 @@ describe('the enum vocabularies come from the frozen contract, not from this val
     );
   });
 
-  it('rejects a staleness that is not one of the four', () => {
+  it('rejects a staleness that is not one of the five', () => {
     expect(() => validateSensorCollection(sensorWith('staleness', 'sleepy'))).toThrow(
-      /staleness must be one of fresh \| stale \| offline \| unavailable/,
+      /staleness must be one of fresh \| faulted \| stale \| offline \| unavailable/,
     );
+  });
+
+  it('accepts every staleness the contract publishes, `faulted` included', () => {
+    // The rejection above is only meaningful if the allowed set is read from the contract
+    // rather than written out here. A list that gained `faulted` on one side only would
+    // reject real published data, so assert the enum check never fires for a published
+    // value.
+    //
+    // Only the ENUM check is asserted, not validity. The shared fixture carries an
+    // observation, so reading it as `fresh` legitimately trips a cross-field rule — and
+    // those rules have their own cases below. A test that demanded full validity for
+    // every state would be testing the fixture, not the vocabulary.
+    for (const staleness of STALENESS_STATES) {
+      let message = '';
+      try {
+        validateSensorCollection(sensorWith('staleness', staleness));
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message, `staleness ${staleness} was rejected as not in the allowed set`).not.toMatch(
+        /staleness must be one of/,
+      );
+    }
   });
 
   it('rejects an activity that is not one of the five', () => {
