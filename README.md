@@ -151,7 +151,11 @@ A screenline site publishes its latest survey and its direction of travel since
 the first one — 41 rising, 41 falling, 32 flat, none unclassifiable. A counter
 publishes where its most recent reading sits **in its own recent history at the
 same weekday and time of day**: `quiet`, `typical`, `busy` or `veryBusy`, plus a
-freshness state derived from the age of that reading.
+freshness state. Four of the five freshness states are derived from the age of
+that reading; the fifth, `faulted`, is not — it means the counter is reporting on
+schedule and every reading is zero, which a dead counter does while looking
+fresher than any working one. See
+[ADR 0007](docs/adr/0007-fault-a-counter-publishing-zeroes-is-not-fresh.md).
 
 Three things it deliberately does not do:
 
@@ -330,12 +334,12 @@ how to point it somewhere else.
 | --- | --- |
 | `npm run lint` | ESLint over `src`, `tests` and the config files. |
 | `npm run typecheck` | `tsc --noEmit`. |
-| `npm test` | Vitest: 511 tests over the loader, filters, search, URL state, colour contrast, layout resilience and axe. |
+| `npm test` | Vitest: 940 tests over the loader, filters, search, URL state, colour contrast, layout resilience, axe, and the Where NYC Walks feature. |
 | `npm run test:a11y` | The three accessibility suites on their own: contrast, layout, axe. |
-| `npm run test:data` | `pytest tests/python` — 213 tests, no network. |
+| `npm run test:data` | `pytest tests/python` — 451 tests, no network. |
 | `npm run build` | Typecheck, then a production build into `dist/`. |
 | `npm run preview` | Serve the production build locally. |
-| `npm run verify` | lint + test + build + data:validate in one shot. |
+| `npm run verify` | lint + test + build + `data:validate --strict` + pytest, in that order. This is `ci.yml`. |
 | `npm run data:*` | `fetch`, `inspect`, `clean`, `validate`, `refresh`. |
 
 The full runbook is in [`docs/data-pipeline.md`](docs/data-pipeline.md).
