@@ -1179,6 +1179,14 @@ button {
   padding: var(--eoy-space-2) var(--eoy-space-3);
   border-radius: var(--eoy-radius);
   cursor: pointer;
+  /*
+   * A `div`, so the global `button` rule's `touch-action` does not reach it, and the combobox
+   * pattern means it cannot become a `<button>` — a button inside a `listbox` is invalid and
+   * the `role="option"` is what makes `aria-selected` honest. So the tap treatment is
+   * declared here, like it is on `.eoy-pill`.
+   */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .eoy-search__option:hover,
@@ -1647,6 +1655,12 @@ button {
   border-radius: var(--eoy-radius);
   font-weight: 700;
   cursor: pointer;
+  /*
+   * A `<summary>`, not a `<button>`, so the global rule does not reach it — and it pays the
+   * same 300ms delay as everything else while looking exactly like a control that does not.
+   */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .eoy-legend__list {
@@ -2396,6 +2410,10 @@ button {
   font-weight: 700;
   cursor: pointer;
   list-style-position: inside;
+  /* As `.eoy-legend__summary`: a `<summary>` is a disclosure control, not a button, and pays
+     the same 300ms delay as everything else. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .wnyc-legend__list {
@@ -2540,6 +2558,13 @@ button {
   border-radius: var(--eoy-pill);
   cursor: pointer;
   min-height: var(--eoy-tap);
+  /*
+   * A `<label>` — a selection control, not a button — so the global rule does not reach it.
+   * This one is the largest control in the app paying the tap delay, which is the version of
+   * the bug that is hardest to believe is real.
+   */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .wnyc-sort__name {

@@ -78,6 +78,11 @@ const INTERACTIVE = [
   'eoy-legend__summary',
   'eoy-sheet__close',
   'eoy-segmented__option',
+  // The walk feature's own two, which were not in the list at all. Both are 32px or taller
+  // so the target-size audit above was already passing on them by luck rather than by
+  // coverage; adding them here is what makes the tap-treatment audit below see them too.
+  'wnyc-legend__summary',
+  'wnyc-sort__label',
 ] as const;
 
 describe('target size (WCAG 2.2 SC 2.5.8, AA)', () => {
@@ -585,6 +590,58 @@ describe('wrapped text (readability rather than a criterion)', () => {
  */
 
 /**
+ * Every TypeScript source under `src/`, read once.
+ *
+ * Two checks in this file read the components rather than the stylesheet — one for the custom
+ * properties they set as inline styles, one for the elements a class is rendered on — and a
+ * second walker would be a second parser that could disagree with the first.
+ */
+function componentSources(): string[] {
+  const sources: string[] = [];
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(path);
+        continue;
+      }
+      if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+      sources.push(readFileSync(path, 'utf8'));
+    }
+  };
+  walk(resolvePath(process.cwd(), 'src'));
+  return sources;
+}
+
+/**
+ * The element tags a class is rendered on, read from the JSX rather than guessed.
+ *
+ * This exists because of one blind spot in a stylesheet-only audit: `touch-action:
+ * manipulation` is declared once for the whole app on the bare `button` selector, so asking
+ * "does `.eoy-row` declare it?" reads `no` for a `<button className="eoy-row">` that is in
+ * fact covered. The JSX is what tells those two apart — a class rendered on a `<button>` is
+ * covered by the global rule whatever its own rule says, and one rendered on a `div`, a
+ * `summary` or a `label` is covered by nothing at all.
+ *
+ * Deliberately a literal read of `className`, not a runtime render: a component that builds
+ * its class name out of an expression will not be found, and a class that cannot be found is
+ * a class this suite refuses to certify, which is the right way round for an audit.
+ */
+function tagsCarrying(className: string): Set<string> {
+  const tags = new Set<string>();
+  for (const source of componentSources()) {
+    for (const match of source.matchAll(/className=(?:"([^"]*)"|\{'([^']*)'\}|\{`([^`]*)`\})/g)) {
+      const list = (match[1] ?? match[2] ?? match[3] ?? '').split(/\s+/);
+      if (!list.includes(className)) continue;
+      const open = source.slice(0, match.index).lastIndexOf('<');
+      const tag = /^<([A-Za-z][\w-]*)/.exec(source.slice(open))?.[1];
+      if (tag !== undefined) tags.add(tag);
+    }
+  }
+  return tags;
+}
+
+/**
  * Custom property names set from TypeScript, as inline styles.
  *
  * `'--name': value` or `"--name": value`, which is how a computed custom property has to be
@@ -595,23 +652,14 @@ describe('wrapped text (readability rather than a criterion)', () => {
  */
 function inlineCustomProperties(): string[] {
   const names: string[] = [];
-  const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        walk(path);
-        continue;
-      }
-      if (!/\.(ts|tsx|css)$/.test(entry.name)) continue;
-      // A quoted `--name` in a TS or TSX file is a custom property: there is no other
-      // reading of it. The `as string` in `['--wnyc-swatch' as string]` is why this matches
-      // the name and not the whole key.
-      for (const match of readFileSync(path, 'utf8').matchAll(/['"`](--[\w-]+)['"`]/g)) {
-        names.push(match[1] as string);
-      }
+  for (const source of componentSources()) {
+    // A quoted `--name` in a TS or TSX file is a custom property: there is no other
+    // reading of it. The `as string` in `['--wnyc-swatch' as string]` is why this matches
+    // the name and not the whole key.
+    for (const match of source.matchAll(/['"`](--[\w-]+)['"`]/g)) {
+      names.push(match[1] as string);
     }
-  };
-  walk(resolvePath(process.cwd(), 'src'));
+  }
   return names;
 }
 describe('every custom property the stylesheet reads is one it defines', () => {
@@ -937,5 +985,49 @@ describe('the map furniture at the bottom of the screen is stacked, not overlapp
     expect(attribDeclaration, 'the attribution must not account for itself').not.toContain(
       'var(--eoy-attrib-height)',
     );
+  });
+});
+
+describe('every tap target gets the tap treatment, not just the <button> ones', () => {
+  /**
+   * `touch-action: manipulation` removes the ~300ms double-tap-zoom delay. It is declared on
+   * the global `button` rule plus `.eoy-pill`, `.eoy-button` and `.eoy-chip` — four rules,
+   * three of which are classes. That covers every `<button>` in the app, and nothing else.
+   *
+   * Four interactive elements are not `<button>`s: the search result option (a `div` with
+   * `role="option"`, which the WAI-ARIA combobox pattern requires and which therefore cannot
+   * become a button without invalidating its own listbox), the two `<summary>` elements, and
+   * the walk sort control's `<label>`. All four were paying the full tap delay while looking
+   * exactly like controls that were not.
+   *
+   * The bar is "GETS the treatment", not "declares it on its own rule", and that is the whole
+   * subtlety: a stylesheet-only reading would demand `touch-action` on the ten classes that
+   * ARE `<button>`s and are already covered by the global rule — ten redundant declarations,
+   * and a test that fails on correct code. `tagsCarrying` is what tells the two apart.
+   */
+  it.each(INTERACTIVE)('.%s gets touch-action: manipulation', (className) => {
+    // Resolve through the existing INHERITS map, so a modifier is measured against the base
+    // class that carries the declaration. `.eoy-button--ghost` sets only colours; its tap
+    // treatment is `.eoy-button`'s, and asserting it on the modifier would fail on correct
+    // code.
+    const base = INHERITS[className] ?? className;
+
+    // Two exemptions, both of them wrappers rather than targets. `.eoy-search__field` is a
+    // div the input sits inside and `.eoy-search__input` is the input; the control that is
+    // actually pressed is the form's submit button, `.eoy-search__submit`, which has it.
+    const NOT_A_TARGET = new Set(['eoy-search__field', 'eoy-search__input']);
+    if (NOT_A_TARGET.has(base)) return;
+
+    const rules = readBlocks().filter((b) => ruleAppliesTo(b.selector, base));
+    const declares = rules.some((b) => /(^|[;{\s])touch-action:\s*manipulation/.test(b.body));
+    const tags = tagsCarrying(base);
+
+    expect(
+      declares || tags.has('button'),
+      `.${base} is a tap target that is neither a <button> nor a rule that declares ` +
+        'touch-action: manipulation. Every other control in this app has it; this one is not a ' +
+        '<button>, so the global rule does not reach it. It is rendered on ' +
+        `<${[...tags].join('>, <') || 'nothing this suite could find in src/'}> in src/.`,
+    ).toBe(true);
   });
 });
