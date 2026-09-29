@@ -26,3 +26,12 @@ data/raw/**/*.json
 # Test/build scratch
 .vitest/
 test-results/
+
+# Implementation plans. Working documents for one change, written before the code and
+# superseded by it: they name line numbers, test counts and helper signatures that drift the
+# moment the work lands, and every one of those claims was wrong in at least one case when
+# the plan it came from was executed. A checked-in plan is a second source of truth that
+# disagrees with the code it describes. The decisions that outlive a change belong in
+# docs/adr/ (see docs/decisions.md); the reasoning for a fix belongs in the commit and the
+# comment above the code it explains.
+docs/plans/
