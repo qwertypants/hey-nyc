@@ -1331,6 +1331,21 @@ button {
   font: inherit;
   text-align: left;
   cursor: pointer;
+  /*
+   * 60 rows are mounted and 6 are on screen, so the first paint is laying out about 5 900px of
+   * content in a 600px box. `auto` defers the interior layout of the rows that are off
+   * screen and does it again as they come into view. This is NOT `hidden`: `hidden` would
+   * remove the row's text from the accessibility tree and from find-in-page, and this list is
+   * the app's accessible alternative to the map, so that would take away the thing the list
+   * exists to be.
+   *
+   * The `auto` keyword in the fallback makes the browser remember the real size once a row
+   * has been rendered, so the length is only what the scrollbar uses before then. It is
+   * 100px because the row measures 98px at 390px wide — deliberately not a `height`, which
+   * would be a fixed height on a text-bearing rule and a 1.4.12 failure.
+   */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 6.25rem;
   /* The focus ring is 3px plus a 2px offset, and the bottom bar floats over the foot of
      the list, so the last row needs this much room to show its own indicator. */
   scroll-margin-block: var(--eoy-space-4) 5rem;

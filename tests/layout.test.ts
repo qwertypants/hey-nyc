@@ -1031,3 +1031,47 @@ describe('every tap target gets the tap treatment, not just the <button> ones', 
     ).toBe(true);
   });
 });
+
+describe('the list does not lay out 60 rows to show six', () => {
+  /**
+   * `DEFAULT_VISIBLE_LIMIT` is 60 and every one of them is mounted. Measured, each row is
+   * 98px at a 390px viewport and 116px at 320px, so the first paint is laying out 5 880px of
+   * content in a 602px box. On a mid-range phone that is the difference between a list that
+   * appears and one that does not.
+   *
+   * `content-visibility: auto` is the fix with no dependency and no JavaScript. It is NOT
+   * `content-visibility: hidden`, which would remove the rows from the accessibility tree
+   * and from find-in-page — `auto` keeps them in both and defers only their interior layout.
+   *
+   * The `auto` keyword in `contain-intrinsic-size` makes the browser remember each row's real
+   * size once it has been rendered, so the fallback length only has to be close; it is here
+   * so the scrollbar does not jump on the way down.
+   */
+  it('marks a row as skippable, with a remembered-size fallback', () => {
+    const row = declarationsFor('light', 'eoy-row');
+    expect(row['content-visibility']).toBe('auto');
+    expect(row['contain-intrinsic-size']).toMatch(/^auto\s/);
+  });
+
+  it('does not use the variant that would remove the rows from the a11y tree', () => {
+    // `content-visibility: hidden` keeps the box's height but removes its contents from the
+    // accessibility tree and from find-in-page. The list is the app's accessible alternative
+    // to the map, so that variant would take away the thing the list exists to be.
+    const row = declarationsFor('light', 'eoy-row');
+    expect(row['content-visibility']).not.toBe('hidden');
+  });
+
+  it('does not reintroduce a fixed height to make the fallback work', () => {
+    // 1.4.12 is about a fixed height on a text-bearing rule, and the obvious way to make a
+    // contain-intrinsic-size fallback exact is to write one. The existing audit in this file
+    // would catch it; this test names the trap so the next person does not walk into it
+    // while trying to be tidy.
+    const blocks = readBlocks().filter((b) => ruleAppliesTo(b.selector, 'eoy-row'));
+    for (const block of blocks) {
+      expect(
+        /(^|[;{\s])height\s*:\s*[\d.]+(px|rem)/.test(block.body),
+        `.eoy-row must size itself from its content, not from a length. Block: ${block.selector}`,
+      ).toBe(false);
+    }
+  });
+});
