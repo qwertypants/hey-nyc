@@ -165,7 +165,10 @@
 
   --eoy-bar-height: 3.75rem;
   --eoy-rail-height: 3.5rem;
-  --eoy-header-height: calc(var(--eoy-bar-height) + var(--eoy-rail-height));
+  --eoy-modes-height: 3.5rem;
+  --eoy-header-height: calc(
+    var(--eoy-bar-height) + var(--eoy-modes-height) + var(--eoy-rail-height)
+  );
 }
 
 /* ==========================================================================
@@ -452,6 +455,22 @@ button {
 .eoy-app__body {
   position: relative;
   display: grid;
+  /*
+   * ONE COLUMN, AND IT IS ALLOWED TO BE SMALLER THAN ITS CONTENT.
+   *
+   * With no `grid-template-columns` the implicit track is `auto`, whose BASE SIZE is the
+   * largest min-content contribution of the items in it — and `overflow-x: auto` does not
+   * make a block-level box's min-content zero, because the "an overflow container's automatic
+   * minimum size is zero" rule is about a flex or grid ITEM, and `.eoy-modes` is a block
+   * inside a block. Its two switcher options have `min-width: 9rem` and their definitions
+   * wrap, so their min-content sums to 740px. On a 390px phone the track therefore became
+   * 740px, the header overflowed its own container, and "Near me" and the other feature's
+   * switcher option were laid out off the right edge: the header showed a wordmark and an
+   * empty black band. `minmax(0, 1fr)` is the fix, and it is the one that says the track may
+   * shrink below what its content would rather have, with `.eoy-modes`'s own `overflow-x`
+   * doing the scrolling it was written to do.
+   */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
 }
@@ -484,10 +503,11 @@ button {
  *
  * `--eoy-header-height` is used to keep the wide-layout detail sheet below the header
  * rather than under it. It used to be a hand-written `3.25rem` that quietly stopped being
- * true the moment a second row was added, so it is now built from the two rows' own
+ * true the moment a second row was added, so it is now built from the three rows' own
  * minimums, and those rows are given those minimums. Change one and the sheet follows.
  *
  *   bar   3.75rem = a 2.75rem (44px) control + 0.5rem of padding top and bottom
+ *   modes 3.5rem  = the same control + 0.75rem of padding beneath it
  *   rail  3.5rem  = the same control + 0.75rem of padding beneath it
  */
 .eoy-header__bar {
@@ -636,6 +656,98 @@ button {
   color: #ffffff;
   font-variant-numeric: tabular-nums;
   font-size: var(--eoy-text-xs);
+}
+
+/* ---- the feature switcher ---------------------------------------------------- */
+
+/*
+ * ITS OWN ROW, between the bar and the rail.
+ *
+ * A third control in `.eoy-header__bar` would be a wordmark, a search field, Near me and a
+ * segmented control across 320 CSS px, and the search field — the primary control — would
+ * be squeezed to about 50px. A row of its own keeps the bar exactly as it was, keeps every
+ * option at 44px, and puts the mode where a visitor looks first: it changes the whole page,
+ * so it belongs above the fold rather than behind a disclosure.
+ *
+ * It SCROLLS rather than wraps, for the same reason the filter rail does: a wrapping row
+ * changes the header height, which resizes the map, and a map that resizes when you change
+ * feature loses your place.
+ */
+.eoy-modes {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  min-height: var(--eoy-modes-height);
+  padding: 0 var(--eoy-space-3) var(--eoy-space-3);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+/*
+ * THE HEADER'S OWN TEXT COLOUR, RESTATED WHERE IT IS NEEDED.
+ *
+ * `.eoy-modes` sits on the dark app header, where `--eoy-text` is white — but
+ * `.eoy-segmented__option` (line ~1749, LATER in this file, and the class these buttons
+ * also carry) hard-codes `color: var(--eoy-text)`. The token is re-declared per colour
+ * scheme rather than per surface, so a button on the dark header resolves the LIGHT
+ * scheme's black. The unselected option was therefore black text on a black bar and simply
+ * did not exist; the screenshot showed one switcher option where there are two.
+ *
+ * `inherit` is used rather than a literal so the rule follows whatever the header sets,
+ * including under forced-colors. The companion rules that need the same treatment are
+ * declared with `.eoy-modes` in front of them, in the `.eoy-segmented` block at the end of
+ * this file, because the generic segmented rule beats any single-class rule written here.
+ */
+
+.eoy-modes::-webkit-scrollbar {
+  display: none;
+}
+
+.eoy-modes__option {
+  /* `0 1 auto`, NOT `1 1 auto`. The generic `.eoy-segmented__option` is `inline-flex`,
+     which sizes to content — correct for the two-option "Map | List" pair in the bottom
+     bar, wrong here. With `flex-grow: 1` each option absorbed half the row and the
+     switcher stretched to 1 414px at 1440px wide. Growing from zero keeps each option the
+     width of its own label. */
+  flex: 0 1 auto;
+  max-width: 22rem;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  min-width: 9rem;
+  min-height: var(--eoy-tap);
+  padding: var(--eoy-space-1) var(--eoy-space-3);
+  text-align: left;
+  line-height: 1.2;
+}
+
+.eoy-modes__label {
+  font-weight: 500;
+}
+
+.eoy-modes__description {
+  font-size: var(--eoy-text-xs);
+  font-weight: 400;
+  opacity: 0.72;
+  /* The description is one line and truncates. The generic segmented rule sets
+     `white-space: nowrap` on the button, which at 390px let each description run its full
+     natural width and collide with its neighbour — two sentences printed on top of each
+     other, which is worse than either being cut short. The full text stays in the
+     accessible name, so nothing is lost to a screen reader. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.eoy-modes__option[aria-checked='true'] .eoy-modes__description {
+  opacity: 0.85;
+}
+
+.eoy-modes__option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ---- filter rail ---------------------------------------------------------- */
@@ -1133,6 +1245,19 @@ button {
   color: var(--eoy-text-muted);
 }
 
+/*
+ * The slot for the active feature's own list control — Where NYC Walks' three sort orders
+ * today, and `null` for a feature with only one order. It is a wrapper rather than a rule on
+ * the child so the shell styles the SPACE and the feature styles its own control: the walk
+ * control is a set of chips with a definition under each label, and the eat feature has
+ * nothing here at all.
+ */
+.eoy-list__controls {
+  flex: none;
+  padding: var(--eoy-space-3) var(--eoy-space-4);
+  border-bottom: 1px solid var(--eoy-border);
+}
+
 .eoy-list__items {
   flex: 1 1 auto;
   min-height: 0;
@@ -1221,6 +1346,25 @@ button {
   margin: var(--eoy-space-2) 0 0;
   font-size: var(--eoy-text-xs);
   color: var(--eoy-text-muted);
+}
+
+/*
+ * A per-item qualifier, for a feature that has one — "VERY BUSY", "RISING". Eat Outside has
+ * none, because the dataset has no per-place category and inventing one would be a claim the
+ * source does not make; the slot exists so a feature that does have one does not have to
+ * reach into the row's markup. Painted like a chip, which is this design system's own
+ * "a value, not decoration" surface.
+ */
+.eoy-row__badge {
+  align-self: flex-start;
+  margin-top: var(--eoy-space-1);
+  padding: 0 var(--eoy-space-2);
+  border-radius: var(--eoy-pill);
+  background: var(--eoy-chip);
+  color: var(--eoy-text);
+  font-size: var(--eoy-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .eoy-list__more {
@@ -1630,6 +1774,52 @@ button {
   color: #ffffff;
 }
 
+/*
+ * THE FEATURE SWITCHER, ON THE DARK HEADER.
+ *
+ * These buttons carry BOTH `eoy-segmented__option` (shared with the bottom bar's
+ * "Map | List") and `eoy-modes__option`. Everything above assumes a white sheet: a black
+ * selected pill, and `color: var(--eoy-text)` — a token re-declared per colour SCHEME
+ * rather than per surface, so on the dark header it resolved to black. Three consequences,
+ * all of them invisible to a unit test and obvious in a screenshot:
+ *
+ *   1. The unselected option was black text on a black bar. It was not dimmed or clipped;
+ *      it did not exist. The switcher appeared to have one option.
+ *   2. The selected option's black pill was black on black, so nothing marked which map
+ *      you were on.
+ *   3. `flex: 1 1 auto` on `.eoy-modes__option` let each option absorb half the row, so
+ *      the pair stretched to 1 414px at 1440px wide — two enormous text blocks.
+ *
+ * Declared here, at the end, with `.eoy-modes` raising specificity above the single-class
+ * rules above. The selection is carried by a left rule and a heavier weight rather than a
+ * pill, because on this surface a pill would need to be lighter than the bar and the
+ * bottom bar's inverse is what is already painted.
+ */
+.eoy-modes .eoy-modes__option {
+  flex: 0 1 auto;
+  color: inherit;
+  background: transparent;
+  /* A flex item defaults to `min-width: auto` and so refuses to shrink below its content's
+     min-content width. Without this the description below cannot ellipsize and instead
+     overflows into the neighbouring option — at 390px the two sentences printed on top of
+     each other. */
+  min-width: 0;
+}
+
+/* The white of the header text, which is what every other control in this row is drawn in.
+   A literal rather than a token: `--eoy-text` is re-declared per colour scheme and on the
+   dark header it already resolves to white, but tying the rule to the surface it sits on
+   is the whole point — the bug being fixed was a token that did not. */
+.eoy-modes .eoy-modes__option[aria-checked='true'] {
+  background: transparent;
+  color: inherit;
+  box-shadow: inset 3px 0 0 currentColor;
+}
+
+.eoy-modes .eoy-modes__option[aria-checked='true'] .eoy-modes__label {
+  font-weight: 700;
+}
+
 .eoy-segmented__option[aria-checked='true'] .eoy-button__count {
   background: #ffffff;
   color: #000000;
@@ -1838,6 +2028,16 @@ button {
    * sheet over it. `max-height` is derived from the header rather than `top` being a
    * hand-tuned number: if the header ever grows, the sheet shrinks and its own body
    * scrolls, instead of the sheet quietly sliding up underneath the filter rail.
+   *
+   * The gap is `--eoy-space-5`, which is the largest step on the scale, and it used to say
+   * `--eoy-space-6` — a token that has never existed. A `var()` naming an undefined custom
+   * property does not fall back to anything: it makes the WHOLE declaration invalid at
+   * computed-value time, so `max-height` computed to `none` and this panel had no height
+   * limit at all. It was invisible for Eat Outside, whose sheet is 649px tall on a laptop and
+   * therefore never needed the clamp, and it appeared the moment Where NYC Walks opened a
+   * sheet with 37 survey bars in it: the panel grew past the viewport, its header and its
+   * close button slid off the top, and the sheet opened with its own title unreadable.
+   * `tests/layout.test.ts` now fails on any `var(--token)` that is not defined.
    */
   .eoy-sheet {
     top: auto;
@@ -1845,7 +2045,7 @@ button {
     right: var(--eoy-space-4);
     bottom: calc(var(--eoy-tap) + var(--eoy-space-5));
     width: min(26rem, 40vw);
-    max-height: calc(100% - var(--eoy-header-height) - var(--eoy-space-6));
+    max-height: calc(100% - var(--eoy-header-height) - var(--eoy-space-5));
     border-radius: var(--eoy-radius-lg);
   }
 }
@@ -1874,5 +2074,370 @@ button {
   .eoy-search {
     order: 3;
     flex: 1 1 100%;
+  }
+}
+
+/* ==========================================================================
+   WHERE NYC WALKS — feature styles
+   Appended below the application layer, and deliberately NOT added to the token
+   block at the top of this file. Two reasons, both load-bearing:
+
+   1. The stylesheet audits read the FIRST `:root { … }` block only (see
+      tests/helpers/stylesheet.ts, `tokensIn(':root {', '}', 0, …)`). A walk token
+      declared in a second `:root` block would be invisible to
+      tests/contrast.test.ts's "every colour in the stylesheet is a colour we can
+      measure" pass, and the pass would then be SKIPPING a colour while reporting a
+      pass — the exact failure mode that helper was written to prevent. Declaring
+      the walk palette here as literals, and pinning every one of them to
+      src/features/walk/style.ts from tests/walk-stylesheet.test.ts, keeps the
+      audit honest AND keeps a second copy from drifting. One place owns the values
+      (style.ts); the other asserts they agree.
+   2. `--eoy-type-*` is the map+data layer's, and this block is the application
+      layer's. The walk data colours are NOT overridden in the dark scheme, for the
+      same reason the dining-type fills are not: the legend has to show the colour
+      the map is actually painting. Every walk fill below clears 3:1 on the light
+      scheme's two surfaces, which tests/walk-stylesheet.test.ts measures with
+      src/lib/contrast.ts rather than trusting the comment.
+
+   NO EXISTING SELECTOR IS TOUCHED IN THIS SECTION. Every rule below is a new
+   `wnyc-` class. No fixed `height` on a text-bearing rule (1.4.12), every scroller
+   carries `overscroll-behavior: contain`, and no `vh` (see tests/layout.test.ts).
+   ========================================================================== */
+
+/* ---- walk detail sheet body ------------------------------------------------ */
+
+/*
+ * The headline is the most important string in this feature — the survey DATE for a
+ * site, the FRESHNESS for a counter — so it is set at the largest size in the sheet
+ * and given its own rule, rather than being the first row of the facts list where it
+ * would read as one measurement among many.
+ */
+.wnyc-detail__headline {
+  margin: 0 0 var(--eoy-space-3);
+  font-size: var(--eoy-text-lg);
+  font-weight: 700;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.wnyc-detail__facts {
+  display: grid;
+  gap: var(--eoy-space-2);
+  margin: 0 0 var(--eoy-space-4);
+}
+
+.wnyc-detail__fact {
+  display: grid;
+  grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+  gap: var(--eoy-space-3);
+  align-items: baseline;
+}
+
+.wnyc-detail__label {
+  color: var(--eoy-text-muted);
+  font-size: var(--eoy-text-sm);
+}
+
+.wnyc-detail__value {
+  margin: 0;
+  font-size: var(--eoy-text-sm);
+  text-wrap: pretty;
+}
+
+/*
+ * The honesty sentence. Set apart from the facts with a rule above it, because it is a
+ * different KIND of statement from a fact: a fact is what was measured, this is what
+ * that does and does not support.
+ */
+.wnyc-detail__caveat {
+  margin: var(--eoy-space-4) 0 0;
+  padding-top: var(--eoy-space-3);
+  border-top: 1px solid var(--eoy-border);
+  color: var(--eoy-text-muted);
+  font-size: var(--eoy-text-sm);
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+/*
+ * Below 30rem the two columns of a fact stop being a label/value pair and start being a
+ * ragged stack, so the label goes on its own line. The label keeps its own line rather
+ * than wrapping to a variable height, which is what would clip under 1.4.12.
+ */
+@media (max-width: 30rem) {
+  .wnyc-detail__fact {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--eoy-space-1);
+  }
+}
+
+/* ---- walk survey chart ----------------------------------------------------- */
+
+.wnyc-chart {
+  margin: 0 0 var(--eoy-space-4);
+}
+
+.wnyc-chart__title {
+  margin: 0 0 var(--eoy-space-2);
+  font-size: var(--eoy-text-sm);
+  font-weight: 700;
+}
+
+/*
+ * The SVG is a fixed-aspect box that scales to its column. `display: block` so the
+ * inline baseline gap under it does not add a stray 4px, and no `height` is declared —
+ * the height is the `height` attribute on the element, which is content, not a CSS
+ * box, so 1.4.12 has nothing to clip.
+ */
+.wnyc-chart__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--eoy-surface);
+  border: 1px solid var(--eoy-border);
+  border-radius: var(--eoy-radius-sm);
+}
+
+.wnyc-chart__tick {
+  font-family: var(--eoy-font);
+}
+
+.wnyc-chart__caption {
+  margin: var(--eoy-space-2) 0 0;
+  color: var(--eoy-text-muted);
+  font-size: var(--eoy-text-xs);
+  line-height: 1.5;
+}
+
+/* The two "there is nothing to draw" states, in the caption's own voice and size. */
+.wnyc-chart__refused {
+  margin: 0 0 var(--eoy-space-4);
+  color: var(--eoy-text-muted);
+  font-size: var(--eoy-text-sm);
+  line-height: 1.5;
+}
+
+/* ---- walk legend ----------------------------------------------------------- */
+
+/*
+ * The panel, matching `MapLegend` so the two features' legends are the same object to
+ * a reader. `pointer-events: auto` because the legend sits inside a column that
+ * declares `pointer-events: none` so a pan can pass through the gaps in the message
+ * stack — see `.eoy-messages` in the application layer above.
+ */
+.wnyc-legend {
+  position: absolute;
+  left: var(--eoy-space-4);
+  bottom: var(--eoy-space-4);
+  z-index: 2;
+  max-width: min(20rem, calc(100% - 2 * var(--eoy-space-4)));
+  padding: var(--eoy-space-2) var(--eoy-space-3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  background: var(--eoy-surface);
+  border: 1px solid var(--eoy-border);
+  border-radius: var(--eoy-radius);
+  box-shadow: var(--eoy-shadow-float);
+  color: var(--eoy-text);
+  font-size: var(--eoy-text-sm);
+}
+
+.wnyc-legend__summary {
+  min-height: var(--eoy-tap-sm);
+  padding: var(--eoy-space-2) 0;
+  font-weight: 700;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.wnyc-legend__list {
+  display: grid;
+  gap: var(--eoy-space-2);
+  margin: var(--eoy-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wnyc-legend__item {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+  gap: var(--eoy-space-2);
+  align-items: start;
+}
+
+.wnyc-legend__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.wnyc-legend__label {
+  font-weight: 500;
+}
+
+.wnyc-legend__symbol {
+  color: var(--eoy-text-muted);
+  font-size: var(--eoy-text-xs);
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+
+/*
+ * The drawn swatch. Every value comes from `src/features/walk/style.ts` via an inline
+ * custom property, so the swatch a reader sees IS the mark the map paints: a trend
+ * swatch is a disc whose rim weight is that trend's rim weight, and an activity swatch
+ * is a ring around a core whose opacity is that state's. The `--wnyc-swatch-hollow`
+ * custom property is the "no recent reading" hole, so a missing measurement is
+ * visibly a missing measurement rather than a grey dot.
+ */
+.wnyc-legend__swatch {
+  display: block;
+  width: 1.5rem;
+  /* `aspect-ratio` rather than a second length: a fixed `height` on a text-bearing stylesheet
+     is what WCAG 1.4.12 is about (see tests/layout.test.ts), and a swatch is a decoration
+     that happens to be square. Deriving the height keeps this rule out of that audit without
+     needing an exemption entry in a file this feature does not own. */
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--wnyc-swatch, transparent);
+  border: var(--wnyc-swatch-ring, 2px) solid var(--eoy-swatch-edge);
+}
+
+.wnyc-legend__swatch::after {
+  content: '';
+  display: block;
+  width: 62%;
+  height: 62%;
+  margin: 19%;
+  border-radius: 50%;
+  background: var(--wnyc-swatch-core, var(--wnyc-swatch, transparent));
+  opacity: var(--wnyc-swatch-hollow, 1);
+}
+
+/*
+ * The honesty sentence. Given the muted ink and a rule above it so it reads as the
+ * footnote it is, and given room to breathe — it is three sentences long and it is the
+ * paragraph that stops the whole map being misread.
+ */
+.wnyc-legend__note {
+  margin: var(--eoy-space-3) 0 0;
+  padding-top: var(--eoy-space-2);
+  border-top: 1px solid var(--eoy-border);
+  color: var(--eoy-text-muted);
+  font-size: var(--eoy-text-xs);
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.wnyc-legend__about {
+  display: inline-block;
+  margin-top: var(--eoy-space-2);
+  min-height: var(--eoy-tap-sm);
+  color: var(--eoy-text);
+  font-size: var(--eoy-text-xs);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---- walk sort control ----------------------------------------------------- */
+
+.wnyc-sort {
+  margin: 0;
+  padding: var(--eoy-space-2) 0;
+  border: 0;
+}
+
+.wnyc-sort__legend {
+  padding: 0;
+  font-size: var(--eoy-text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.wnyc-sort__note {
+  margin: var(--eoy-space-1) 0 0;
+  color: var(--eoy-text-muted);
+  font-size: var(--eoy-text-xs);
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.wnyc-sort__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--eoy-space-2);
+  margin-top: var(--eoy-space-2);
+}
+
+/*
+ * The radio itself is the app's own `.eoy-visually-hidden` utility (applied in the
+ * component), not a second copy of the mechanism here. The rings then move onto the LABEL
+ * the user can actually see, which is what `.eoy-chip:has(:focus-visible)` does above —
+ * the rule the focus-indicator audit in tests/contrast.test.ts enforces, repeated here
+ * rather than left to a second implementation nobody audits.
+ */
+.wnyc-sort__option {
+  position: relative;
+  display: flex;
+}
+
+.wnyc-sort__label {
+  display: grid;
+  gap: 2px;
+  padding: var(--eoy-space-2) var(--eoy-space-3);
+  color: var(--eoy-text);
+  background: var(--eoy-chip);
+  border: 1px solid transparent;
+  border-radius: var(--eoy-pill);
+  cursor: pointer;
+  min-height: var(--eoy-tap);
+}
+
+.wnyc-sort__name {
+  font-size: var(--eoy-text-sm);
+  font-weight: 500;
+}
+
+/*
+ * The DEFINITION, on screen. This is why the control is a label with two children
+ * rather than a label with one: the claim the sort makes has to travel with the
+ * control, in the accessible name, without a hover.
+ */
+.wnyc-sort__definition {
+  max-width: 22rem;
+  color: var(--eoy-text-muted);
+  font-size: var(--eoy-text-xs);
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+
+.wnyc-sort__input:checked + .wnyc-sort__label {
+  color: var(--eoy-text-inverse);
+  background: var(--eoy-text);
+  border-color: var(--eoy-text);
+}
+
+.wnyc-sort__input:checked + .wnyc-sort__label .wnyc-sort__definition {
+  color: var(--eoy-text-inverse);
+}
+
+.wnyc-sort__input:focus-visible + .wnyc-sort__label {
+  outline: 3px solid var(--eoy-focus-ink);
+  outline-offset: 2px;
+}
+
+/* Forced colors repaints everything, so the selected state needs an outline it keeps. */
+@media (forced-colors: active) {
+  .wnyc-sort__input:checked + .wnyc-sort__label {
+    outline: 2px solid Highlight;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wnyc-legend,
+  .wnyc-sort__label {
+    transition: none;
   }
 }

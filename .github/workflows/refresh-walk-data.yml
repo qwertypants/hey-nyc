@@ -1,0 +1,504 @@
+name: refresh-walk-data
+
+# Rebuilds the Where NYC Walks artifacts from NYC Open Data and commits them ONLY
+# when the published records changed. Modeled on refresh-data.yml, deliberately:
+# same structure, same permissions, same push discipline, same two-signal
+# no-op detection (ADR 0002). The differences are all explained in place.
+#
+# This workflow COMMITS. It never deploys. deploy.yml already builds and
+# publishes the site; see the note on the commit step about the one-line change
+# it needs before a data-only commit here reaches Pages.
+#
+# Standard library only. There is no `pip install` step because there is nothing
+# to install — see ADR 0003.
+on:
+  workflow_dispatch:
+    inputs:
+      force_commit:
+        description: 'Commit and push even when the contentHash is unchanged.'
+        type: boolean
+        default: false
+      baseline_window:
+        description: 'Days of pedestrian history to fetch. 56 is the designed window; use 55 if the fetch refuses for exceeding Socrata''s offset ceiling.'
+        type: string
+        default: '56'
+  schedule:
+    # 11:41 UTC daily == 07:41 America/New_York (EDT) / 06:41 (EST).
+    #
+    # DAILY, NOT EVERY SIX HOURS, and the source is the whole justification.
+    # `ct66-47at` looks like a 15-minute stream and is not: it is a daily batch
+    # with a multi-hour ingestion lag. Measured on 2026-09-28, when the fetch ran
+    # at 19:53Z the dataset's `rowsUpdatedAt` was 12:21Z — 7.6 hours old — and the
+    # newest PEDESTRIAN row was 01:15 civil time, 14.6 hours old. Every complete
+    # day in the 57-day window carries exactly 768 pedestrian rows (2 counters x
+    # 2 sensor ids x 2 directions x 96 quarter-hours) and the current day was
+    # truncated at 01:15. Four runs a day would therefore re-fetch byte-identical
+    # data three times out of four, and each of those burns an Actions runner to
+    # learn nothing.
+    #
+    # So the cadence matches the publisher. If DOT ever makes this genuinely
+    # streaming, revisit this cron with the measurement in hand — that is a new
+    # ADR, not a tweak. See ADR 0006.
+    #
+    # 11:41 rather than on the hour: the shared GitHub-hosted runner pool piles up
+    # on :00 and during US business hours, and this repo already has a 10:23 UTC
+    # job. The offset is deliberate and so is the 78-minute gap after it, so the
+    # two data workflows do not compete for the same window or the same branch.
+    #
+    # A missed run is self-healing: the check is "does the snapshot differ from
+    # HEAD", not "did yesterday commit", so the next run publishes whatever
+    # accumulated. GitHub disables scheduled workflows in a repository with no
+    # activity for 60 days; workflow_dispatch always works.
+    - cron: '41 11 * * *'
+
+# One refresh at a time. cancel-in-progress is false so a manual run is never
+# killed halfway through a push by the next scheduled run.
+#
+# This group is separate from refresh-data's on purpose — the two workflows have
+# different lifetimes and different inputs — but they push to the same branch, so
+# the rebase-and-retry loop on the commit step is load-bearing here, not
+# decorative. It is the only thing standing between this job and a lost commit.
+concurrency:
+  group: refresh-walk-data
+  cancel-in-progress: false
+
+# Nothing beyond `contents: write`. No secrets are read, required, or usable:
+# a fork that enables Actions gets exactly the same behaviour, and no
+# configuration. That is the forkability promise in ADR 0003, applied to CI.
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    name: Refresh where NYC Walks artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      # fetch-depth 0 gives a real HEAD commit plus a full history, so
+      # `git show HEAD:<artifact>` and the rebase-retry below both behave. A
+      # shallow clone is enough to commit, but the retry path could not rebase.
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          # No `cache: pip` here, and no `pip install` step below. The walk
+          # pipeline is standard library only (ADR 0003); requirements.txt exists
+          # for the eat pipeline's pytest and for nothing in this workflow.
+
+      # ---------------------------------------------------------------------
+      # The raw snapshot cache.
+      #
+      # WHY IT EXISTS. `fetch_counts.py` is incremental: it takes only what the
+      # stored watermark says it has not seen, and keeps a rolling 56-day window
+      # by pruning the old end. Without the previous snapshot that window has to
+      # be re-downloaded from scratch on every run, which is 42,000+ rows of
+      # pedestrian data to rebuild a baseline that already existed yesterday.
+      # Restoring the snapshot means each run fetches one day's delta.
+      #
+      # WHY THE KEY IS PINNED ON THE PIPELINE CODE. The fetch is code, not just
+      # the build: `fetch_counts.py` decides which columns are requested, which
+      # window is budgeted, how the watermark is recorded and how the snapshot is
+      # canonicalised. A change to any of it changes what a snapshot SHOULD
+      # contain, so a snapshot written by different code is not a safe input to
+      # new code. hashFiles over scripts/walk/ and this file invalidates the
+      # cache on any such change, and the next run re-fetches a full window from
+      # scratch. That costs one download and buys certainty.
+      #
+      # WHY THERE ARE NO `restore-keys`. A prefix fallback would silently hand
+      # back a snapshot built by an older pipeline — which is exactly what the
+      # pin above exists to prevent. A miss is a miss, and a miss costs one
+      # 56-day fetch.
+      #
+      # `verify_snapshot()` in the build re-hashes the restored snapshot against
+      # the `contentHash` its fetch meta records, so a truncated or hand-edited
+      # cache entry is refused rather than built on.
+      - name: Restore the raw snapshot
+        uses: actions/cache@v4
+        with:
+          path: data/raw/walk
+          key: walk-raw-${{ runner.os }}-${{ hashFiles('scripts/walk/**', '.github/workflows/refresh-walk-data.yml') }}
+
+      # ---------------------------------------------------------------------
+      # Stage 1 - rebuild from the live source. Both halves, each stopping at its
+      # first failure. The two halves never share a number, only a directory, so
+      # they run in sequence rather than in parallel: two processes writing
+      # public/data/walk at once is how a half-written artifact set happens.
+      # ---------------------------------------------------------------------
+      - name: Rebuild the bi-annual screenline artifacts
+        run: |
+          set -euo pipefail
+          # 114 rows, ~260 KB, fetched whole every run. Nothing to be incremental
+          # about at this size, so no cache key for it.
+          python3 scripts/walk/history/fetch.py
+          python3 scripts/walk/history/transform.py
+          # NOT --strict, and the reason is worth stating rather than looking
+          # like an oversight. history/validate.py emits two drift warnings on
+          # today's data, permanently: `borough` values 'Staten Isla' (x5) and the
+          # two bridge groups. Those are DOT's own column published verbatim (ADR
+          # 0006), so --strict would fail every single run forever and train
+          # everyone to ignore the flag. Without it, corruption is still fatal;
+          # only drift is downgraded to a warning, which is what it means.
+          python3 scripts/walk/history/validate.py
+
+      - name: Rebuild the automated counter artifacts
+        env:
+          BASELINE_WINDOW: ${{ inputs.baseline_window }}
+        run: |
+          set -euo pipefail
+          # `--baseline-window` is forwarded so the documented fallback for
+          # Socrata's offset ceiling needs no edit to this file. 768 rows a day
+          # makes 56 days 43,008 rows against MAX_SOCRATA_OFFSET = 43,000
+          # (deliberately below Socrata's own 43,043, because a ceiling you can
+          # hit is a ceiling that truncates). The pipeline BUDGETS the window
+          # before fetching and refuses rather than truncating. It passes today
+          # only because the feed is hours behind and a full window measures
+          # ~42,548 rows; if the feed ever becomes current this is the input to
+          # set to 55.
+          python3 scripts/walk/refresh.py --baseline-window "${BASELINE_WINDOW:-56}"
+
+          # Also not --strict, for the same reason: validate_walk.py warns that
+          # every counter has more than one sensor_id, which is the twin collapse
+          # working correctly and is true of all four counters on a healthy build.
+          # Corruption — a wrong id, a count on an offline counter, an expected
+          # from too few samples — is fatal either way.
+
+      # ---------------------------------------------------------------------
+      # Stage 2 - NO-OP COMMIT DETECTION. Read this before changing it.
+      #
+      # Two signals, exactly as in ADR 0002, and they must agree:
+      #
+      #   Signal A (primary) - contentHash, per half.
+      #     Each half computes sha256 over canonical_json(features sorted by id),
+      #     the same recipe the eat pipeline uses. Neither metadata file is an
+      #     input, so neither hash can observe a timestamp. Both are recomputed
+      #     here over the bytes about to be committed, so a hand-edited GeoJSON
+      #     cannot slip past.
+      #
+      #   Signal B (cross-check) - timestamp-stripped comparison of every tracked
+      #     artifact. Everything is material except retrievedAt, generatedAt and
+      #     sourceUpdatedAt.
+      #
+      # A disagreement FAILS the workflow rather than committing on an ambiguous
+      # answer. That means this repository is broken, not that DOT drifted.
+      #
+      # WHY HASH-BASED AND NOT MTIME-BASED. A `git diff` gate fires on every run
+      # because generatedAt/retrievedAt move; an mtime gate fires for the same
+      # reason and is worse, because a fresh checkout makes every file look new.
+      #
+      # THE BLIND SPOT, AND WHAT CATCHES IT. The history hash covers
+      # historical-locations.geojson ONLY. No site's LATEST survey comes from the
+      # two `*_p_m` columns (May 2022 and May 2023), so a fix to those older
+      # surveys changes historical-patterns.json and leaves the hash untouched —
+      # a hash-only gate would skip a materially different artifact. Signal B
+      # compares patterns.json with the timestamps stripped, so that change is
+      # caught and committed anyway. Hash-primary is still the right call: mtime
+      # would be right by accident and wrong whenever a checkout reorders it.
+      #
+      # ONE EXPECTED DAILY MOVE. Unlike the eat pipeline, the sensors hash is
+      # EXPECTED to move most days: `staleness` and `active` are published
+      # properties derived from the clock, so a counter crossing fresh -> stale ->
+      # offline is a real change to the published record. Once every counter is
+      # permanently offline the properties freeze and the hash stops moving. That
+      # is correct behaviour, not churn.
+      # ---------------------------------------------------------------------
+      - name: Detect material change
+        id: detect
+        env:
+          FORCE_COMMIT: ${{ inputs.force_commit }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee -a "${GITHUB_STEP_SUMMARY}"
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "scripts/walk")
+          import _common as C  # noqa: E402
+
+          SENSORS = "public/data/walk/sensors.geojson"
+          LATEST = "public/data/walk/latest.json"
+          HISTORICAL = "public/data/walk/historical-locations.geojson"
+          PATTERNS = "public/data/walk/historical-patterns.json"
+          REPORT = "data/processed/walk/report.json"
+
+          # Wall-clock stamps and the dataset's own rowsUpdatedAt. None of these
+          # describe the records, so none may trigger a commit.
+          NON_MATERIAL = frozenset({"retrievedAt", "generatedAt", "sourceUpdatedAt"})
+
+          def out(message=""):
+              print(message)
+
+          def fail(message):
+              out()
+              out(f"::error::{message}")
+              sys.exit(1)
+
+          def committed_bytes(path):
+              result = subprocess.run(
+                  ["git", "show", f"HEAD:{path}"], capture_output=True, check=False
+              )
+              return None if result.returncode != 0 else result.stdout
+
+          def committed_json(path):
+              raw = committed_bytes(path)
+              if raw is None:
+                  return None
+              try:
+                  return json.loads(raw.decode("utf-8"))
+              except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                  fail(f"HEAD:{path} is not valid JSON ({exc}); refusing to guess")
+
+          def strip_non_material(value):
+              if not isinstance(value, dict):
+                  return value
+              return {k: v for k, v in value.items() if k not in NON_MATERIAL}
+
+          def field_delta(old, new):
+              if not isinstance(old, dict) or not isinstance(new, dict):
+                  return ["<shape>"]
+              return [
+                  key
+                  for key in sorted(set(old) | set(new))
+                  if key not in NON_MATERIAL and old.get(key) != new.get(key)
+              ]
+
+          def features_of(path):
+              return json.loads(Path(path).read_bytes().decode("utf-8")).get("features", [])
+
+          out("#### No-op commit detection")
+          out()
+
+          # --- Signal A ------------------------------------------------------
+          new_sensors = features_of(SENSORS)
+          new_historical = features_of(HISTORICAL)
+          latest = json.loads(Path(LATEST).read_text(encoding="utf-8"))
+          patterns = json.loads(Path(PATTERNS).read_text(encoding="utf-8"))
+          report = json.loads(Path(REPORT).read_text(encoding="utf-8"))
+
+          sensors_hash = C.content_hash(new_sensors)
+          historical_hash = C.content_hash(new_historical)
+
+          # The artifacts must agree with their own recorded digest.
+          if latest.get("contentHash") != sensors_hash:
+              fail(f"{LATEST} contentHash {latest.get('contentHash')!r} != recomputed {sensors_hash}")
+          if patterns.get("contentHash") != historical_hash:
+              fail(f"{PATTERNS} contentHash {patterns.get('contentHash')!r} != recomputed {historical_hash}")
+          if report.get("history", {}).get("contentHash") != historical_hash:
+              fail(f"{REPORT} history.contentHash != recomputed {historical_hash}")
+
+          out(f"- sensors: **{len(new_sensors)}** counters, contentHash `{sensors_hash[:12]}`")
+          out(f"- historical: **{len(new_historical)}** locations, contentHash `{historical_hash[:12]}`")
+
+          old_latest = committed_json(LATEST)
+          old_patterns = committed_json(PATTERNS)
+          old_sensors_bytes = committed_bytes(SENSORS)
+          old_historical_bytes = committed_bytes(HISTORICAL)
+
+          if old_latest is None or old_patterns is None:
+              hash_changed = True
+              old_sensors_hash = old_historical_hash = None
+              out("- baseline: none in HEAD (first publish for this half)")
+          else:
+              old_sensors = json.loads(old_sensors_bytes.decode("utf-8")).get("features", []) if old_sensors_bytes else []
+              old_historical = json.loads(old_historical_bytes.decode("utf-8")).get("features", []) if old_historical_bytes else []
+              old_sensors_hash = C.content_hash(old_sensors)
+              old_historical_hash = C.content_hash(old_historical)
+              # Recomputed rather than trusted: if HEAD's own digest disagrees
+              # with HEAD's features, the committed baseline is corrupt and we
+              # must not build a decision on it.
+              if old_sensors_hash != old_latest.get("contentHash"):
+                  fail(f"HEAD {LATEST} contentHash does not match HEAD:{SENSORS}")
+              if old_historical_hash != old_patterns.get("contentHash"):
+                  fail(f"HEAD {PATTERNS} contentHash does not match HEAD:{HISTORICAL}")
+              hash_changed = old_sensors_hash != sensors_hash or old_historical_hash != historical_hash
+              out(f"- HEAD: sensors `{str(old_sensors_hash)[:12]}`, historical `{str(old_historical_hash)[:12]}`")
+
+          # --- Signal B ------------------------------------------------------
+          material_moves = []
+          for path, old_bytes in ((SENSORS, old_sensors_bytes), (HISTORICAL, old_historical_bytes)):
+              if old_bytes is None:
+                  material_moves.append(f"{path}: absent in HEAD")
+              elif old_bytes != Path(path).read_bytes():
+                  material_moves.append(f"{path}: bytes differ")
+          for path, old_doc, new_doc in (
+              (LATEST, old_latest, latest),
+              (PATTERNS, old_patterns, patterns),
+              (REPORT, committed_json(REPORT), report),
+          ):
+              if old_doc is None:
+                  material_moves.append(f"{path}: absent in HEAD")
+                  continue
+              for key in field_delta(strip_non_material(old_doc), strip_non_material(new_doc)):
+                  material_moves.append(f"{path}: {key} differs")
+
+          content_changed = bool(material_moves)
+          out(f"- material field changes: **{len(material_moves)}**")
+          for move in material_moves[:20]:
+              out(f"  - {move}")
+          if len(material_moves) > 20:
+              out(f"  - ... and {len(material_moves) - 20} more")
+          out()
+
+          # --- Decision ------------------------------------------------------
+          if hash_changed and not content_changed:
+              fail(
+                  "a contentHash changed but no material field changed. The signals "
+                  "disagree, which is a bug in this repository, not upstream drift. "
+                  "Nothing was committed."
+              )
+          if content_changed and not hash_changed:
+              # Expected for the ONE case documented above: an older-survey fix
+              # that moves historical-patterns.json and no feature. Do not fail.
+              out(
+                  "- note: material fields moved with no hash change. Expected only when "
+                  "an older survey column changed (historical-patterns.json is outside the "
+                  "history hash). Committing."
+              )
+
+          changed = hash_changed or content_changed
+          if not changed and os.environ.get("FORCE_COMMIT", "").lower() == "true":
+              changed = True
+              out("- force_commit requested, committing an unchanged snapshot.")
+
+          if changed:
+              out("**MATERIAL CHANGE - committing.**")
+          else:
+              out("**No material change.** Only timestamps moved. Skipping the commit.")
+          out()
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"changed={'true' if changed else 'false'}\n")
+              handle.write(f"sensors_hash={sensors_hash}\n")
+              handle.write(f"historical_hash={historical_hash}\n")
+              handle.write(f"old_sensors_hash={old_sensors_hash or 'unknown'}\n")
+              handle.write(f"old_historical_hash={old_historical_hash or 'unknown'}\n")
+              handle.write(f"sensor_count={len(new_sensors)}\n")
+              handle.write(f"location_count={len(new_historical)}\n")
+          PY
+
+      - name: Restore artifacts when nothing changed
+        if: steps.detect.outputs.changed == 'false'
+        run: |
+          set -euo pipefail
+          # The pipeline rewrote these with fresh timestamps. Undo that so the tree
+          # is clean and no stray diff can leak into a later step. The published
+          # records are byte-identical, so nothing of substance is lost.
+          git restore --source=HEAD --worktree -- \
+            public/data/walk/sensors.geojson \
+            public/data/walk/latest.json \
+            public/data/walk/historical-locations.geojson \
+            public/data/walk/historical-patterns.json \
+            data/processed/walk/report.json
+          echo "Clean tree check (expected no output):"
+          git status --porcelain -- public/data data/processed
+
+      # ---------------------------------------------------------------------
+      # Stage 3 - commit and push. No second Pages deploy: deploy.yml already
+      # owns publishing, and this workflow's job is to put the artifacts on the
+      # branch.
+      #
+      # ONE THING THE MAINTAINER NEEDS TO DO, and it is a one-line change to a
+      # file this task does not own: deploy.yml fires on `workflow_run` for
+      # `refresh-data` only. A commit pushed here with GITHUB_TOKEN does NOT
+      # trigger the `push` trigger (GitHub suppresses runs created by the default
+      # token), so until `refresh-walk-data` is added to that list, a walk-only
+      # data commit lands on main and waits for the next human push to publish.
+      # Adding `- refresh-walk-data` under `workflow_run.workflows` in deploy.yml
+      # closes it. Until then the artifacts are correct on main and simply not
+      # deployed by this job alone.
+      # ---------------------------------------------------------------------
+      - name: Commit and push
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          SENSORS_HASH: ${{ steps.detect.outputs.sensors_hash }}
+          HISTORICAL_HASH: ${{ steps.detect.outputs.historical_hash }}
+          OLD_SENSORS_HASH: ${{ steps.detect.outputs.old_sensors_hash }}
+          OLD_HISTORICAL_HASH: ${{ steps.detect.outputs.old_historical_hash }}
+          SENSOR_COUNT: ${{ steps.detect.outputs.sensor_count }}
+          LOCATION_COUNT: ${{ steps.detect.outputs.location_count }}
+          FORCE_COMMIT: ${{ inputs.force_commit }}
+        run: |
+          set -euo pipefail
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # Stage ONLY the published artifacts. `git add -A` would sweep in the
+          # raw snapshot (git-ignored, but still) and anything else the tree holds.
+          git add -- \
+            public/data/walk/sensors.geojson \
+            public/data/walk/latest.json \
+            public/data/walk/historical-locations.geojson \
+            public/data/walk/historical-patterns.json \
+            data/processed/walk/report.json
+
+          # Defence in depth: if the detector and the files disagree, do not
+          # create a mystery commit — unless the operator asked for one.
+          if git diff --cached --quiet; then
+            if [ "${FORCE_COMMIT}" != "true" ]; then
+              echo "::error::change detection reported a change but no artifact is staged. Refusing to create an empty commit."
+              exit 1
+            fi
+            echo "force_commit was set and only timestamps differ; committing anyway."
+          fi
+
+          # One -m per paragraph: a newline inside a YAML block scalar would
+          # terminate the block and turn the rest of the shell into YAML.
+          subject="data: refresh where-nyc-walks (${LOCATION_COUNT} screenline sites, ${SENSOR_COUNT} counters)"
+          if [ "${OLD_HISTORICAL_HASH}" != "unknown" ]; then
+            git commit -m "$subject" \
+              -m "historical cqsj-cfgu: ${OLD_HISTORICAL_HASH} -> ${HISTORICAL_HASH}" \
+              -m "automated ct66-47at:  ${OLD_SENSORS_HASH} -> ${SENSORS_HASH}"
+          else
+            git commit -m "$subject" \
+              -m "First published walk snapshot. Previous contentHashes: unknown." \
+              -m "historical cqsj-cfgu: ${HISTORICAL_HASH}" \
+              -m "automated ct66-47at:  ${SENSORS_HASH}"
+          fi
+
+          # Push with exactly one rebase-and-retry. Never --force: a force push
+          # would destroy a maintainer's concurrent commit on the branch, and
+          # refresh-data.yml pushes to the same one.
+          branch="${GITHUB_REF_NAME}"
+          for attempt in 1 2; do
+            if git push origin "HEAD:refs/heads/${branch}"; then
+              echo "Pushed to origin/${branch} on attempt ${attempt}."
+              exit 0
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "::error::push rejected twice. Another writer advanced ${branch}; the walk data commit was NOT pushed. Re-run this workflow."
+              exit 1
+            fi
+            echo "Push rejected. Rebasing onto origin/${branch} and retrying once."
+            git fetch origin "${branch}"
+            if ! git rebase "origin/${branch}"; then
+              echo "::error::rebase failed. A concurrent commit touched the same data files and needs manual resolution."
+              exit 1
+            fi
+          done
+
+      - name: Summarise
+        if: always()
+        env:
+          SENSORS_HASH: ${{ steps.detect.outputs.sensors_hash }}
+          HISTORICAL_HASH: ${{ steps.detect.outputs.historical_hash }}
+          OLD_SENSORS_HASH: ${{ steps.detect.outputs.old_sensors_hash }}
+          OLD_HISTORICAL_HASH: ${{ steps.detect.outputs.old_historical_hash }}
+        run: |
+          set -euo pipefail
+          {
+            echo
+            echo "- result: \`${{ steps.detect.outputs.changed == 'true' && 'committed' || 'no material change' }}\`"
+            echo "- screenline sites (\`cqsj-cfgu\`): \`${OLD_HISTORICAL_HASH:-none}\` -> \`${HISTORICAL_HASH:-not computed}\`"
+            echo "- automated counters (\`ct66-47at\`): \`${OLD_SENSORS_HASH:-none}\` -> \`${SENSORS_HASH:-not computed}\`"
+            echo "- job: \`${{ job.status }}\`"
+          } >>"${GITHUB_STEP_SUMMARY}"

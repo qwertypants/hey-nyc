@@ -140,7 +140,14 @@ describe('map and list', () => {
 
     await user.click(screen.getByRole('button', { name: /LA COLOMBE/ }));
 
-    expect(app.controller().calls.focusOn).toHaveBeenCalledWith('eoy-0000000000a2');
+    // The controller takes the POSITION as well as the id, because it has no dataset and the
+    // active feature is the only thing that can turn an id into a place. Asserting both is
+    // stronger than the id alone: it also proves the feature resolved the id to the right
+    // coordinates, and that a row for an id the feature does not have would be refused.
+    expect(app.controller().calls.focusOn).toHaveBeenCalledWith('eoy-0000000000a2', {
+      lat: 40.7447,
+      lng: -73.9924,
+    });
     // The map really moved, to a zoom where clusters have dissolved and labels are on.
     expect(app.controller().calls.flyTo).toHaveBeenCalled();
     expect(app.controller().getState().view.zoom).toBe(15.5);

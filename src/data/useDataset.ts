@@ -56,11 +56,16 @@ export function useDataset(): DatasetState {
   const [snapshot, setSnapshot] = useState<Snapshot>(INITIAL);
   const [generation, setGeneration] = useState(0);
 
+  // No AbortController, deliberately. The load is a module-level shared promise, so it
+  // outlives this component; aborting it would cancel a request a later mount — or another
+  // consumer — is still waiting on. Under StrictMode, which remounts every effect in
+  // development, that turned the dev server into a permanent error card. The `active` flag
+  // is the correct way to stop caring about a result you no longer need, and it is what
+  // the original `active` guard was already doing alongside the abort.
   useEffect(() => {
-    const controller = new AbortController();
     let active = true;
 
-    loadLocationsOnce(controller.signal).then(
+    loadLocationsOnce().then(
       (dataset) => {
         if (active) setSnapshot({ dataset, error: null, generation });
       },
@@ -76,7 +81,6 @@ export function useDataset(): DatasetState {
 
     return () => {
       active = false;
-      controller.abort();
     };
   }, [generation]);
 

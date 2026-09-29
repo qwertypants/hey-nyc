@@ -104,7 +104,12 @@ describe('search', () => {
     const list = await screen.findByRole('listbox', { name: /search results/i });
     await user.click(within(list).getByRole('option'));
 
-    expect(app.controller().calls.focusOn).toHaveBeenCalledWith('eoy-0000000000a2');
+    // The position comes with the id because the controller has no dataset; see
+    // `app-map-list.test.tsx` for why asserting both is the stronger assertion.
+    expect(app.controller().calls.focusOn).toHaveBeenCalledWith('eoy-0000000000a2', {
+      lat: 40.7447,
+      lng: -73.9924,
+    });
     expect(await screen.findByTestId('detail-sheet')).toHaveTextContent('LA COLOMBE');
     // The results panel is dismissed, so the sheet is not fighting a dropdown for the screen.
     expect(results()).not.toBeInTheDocument();

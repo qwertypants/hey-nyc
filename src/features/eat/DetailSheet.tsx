@@ -27,20 +27,20 @@
 
 import type { JSX } from 'react';
 import { useId, useRef } from 'react';
-import type { DatasetMetadata, DiningType, LocationProperties } from '../types/location';
-import { describeType, typeStyle } from '../map/style';
-import type { LatLng } from '../lib/distance';
-import { describeDistance } from '../lib/distance';
+import type { DatasetMetadata, DiningType, LocationProperties } from '../../types/location';
+import { describeType, typeStyle } from '../../map/style';
+import type { LatLng } from '../../lib/distance';
+import { describeDistance } from '../../lib/distance';
 import {
   formatAddressLines,
   formatLicensePeriod,
   formatUpdatedAt,
   roadwaySeasonNote,
-} from '../lib/format';
-import { DATA_ATTRIBUTION_HTML } from '../lib/attribution';
-import { DirectionsLink, directionsTargetFor } from './DirectionsLink';
-import { useFocusTrap } from '../hooks/useFocusTrap';
-import { CheckIcon, CloseIcon, MapIcon } from './icons';
+} from '../../lib/format';
+import { DATA_ATTRIBUTION_HTML } from '../../lib/attribution';
+import { DirectionsLink, directionsTargetFor } from '../../components/DirectionsLink';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { CheckIcon, CloseIcon, MapIcon } from '../../components/icons';
 
 /** `both` really is two licences, so the sheet lists two rows. */
 function applicableTypes(type: DiningType): readonly DiningType[] {

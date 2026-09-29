@@ -25,11 +25,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, waitFor } from '@testing-library/react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { UserLocationMarker } from '../src/components/UserLocationMarker';
-import { indexCollection } from '../src/data/dataset';
 import type { LatLng } from '../src/lib/distance';
 import type { MapController } from '../src/map/controller';
 import { createFakeController } from './helpers/fakeController';
-import { FIXTURES, METADATA_FIXTURE, makeCollection } from './helpers/fixtures';
 
 const POSITION: LatLng = { lat: 40.758, lng: -73.9855 };
 
@@ -84,10 +82,7 @@ const MAP = { id: 'fake-map' } as unknown as MapLibreMap;
 function controllerReporting(map: MapLibreMap | null): MapController {
   // The real fake controller again for everything else, so this is still a faithful
   // `MapController` and not a one-method stand-in wearing its type.
-  const controller = createFakeController({
-    container: document.createElement('div'),
-    dataset: { ...indexCollection(makeCollection(FIXTURES)), metadata: METADATA_FIXTURE },
-  });
+  const controller = createFakeController({ container: document.createElement('div') });
   return { ...controller, getMap: () => map };
 }
 

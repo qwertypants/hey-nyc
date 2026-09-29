@@ -7,6 +7,11 @@
  * `stubNavigatorGeolocation` exists for the test that must exercise the real `navigator`
  * read inside `useGeolocation`.
  *
+ * The `withMap` opt-in and the `createCount` accessor are here for
+ * `tests/feature-switching.test.tsx`: a feature is only mounted when the controller hands it
+ * a map, and the only way to count what a feature put on that map is to give the fake
+ * controller a `FakeMap` to hand over.
+ *
  * Public surface:
  *   GeolocationBehaviour, GeolocationDouble
  *   makeGeolocation(behaviour, position?), stubNavigatorGeolocation,
@@ -26,6 +31,7 @@ import type { DatasetFetchControl, DatasetFetchOptions } from './datasetFetch';
 import { createFakeController } from './fakeController';
 import type { FakeController } from './fakeController';
 import type { LatLng } from '../../src/lib/distance';
+import type { MapBounds } from '../../src/lib/bounds';
 import { FIXTURES, METADATA_FIXTURE, MIDTOWN_BOUNDS, makeCollection } from './fixtures';
 
 export type GeolocationBehaviour = 'granted' | 'denied' | 'unavailable' | 'timeout' | 'error';
@@ -124,6 +130,20 @@ export interface RenderAppOptions {
   readonly dataset?: DatasetFetchOptions;
   /** Leaves the map in its `loading` state so the basemap-loading chip can be asserted. */
   readonly mapPending?: boolean;
+  /**
+   * Give the fake controller a real `FakeMap`, so a feature is actually mounted on it and
+   * its layers, sources and listeners can be counted. Off by default; see
+   * `tests/helpers/fakeController.ts` for why turning it on everywhere is not free.
+   */
+  readonly withMap?: boolean;
+  /**
+   * The extent the fake map reports. Defaults to `MIDTOWN_BOUNDS`, which contains three of
+   * the Eat Outside fixtures and NONE of the walk ones — so a test that switches to Where
+   * NYC Walks and then wants to see its list has to hand it an extent the walk fixtures are
+   * actually inside. That is a property of the fixtures, not a bug, and changing the default
+   * would quietly move the list assertions in `tests/app-map-list.test.tsx`.
+   */
+  readonly bounds?: MapBounds;
   readonly geolocation?: Geolocation | null;
   /** Replaces the geocoder. Defaults to a "no results" answer, so no test hits a network. */
   readonly geocode?: (query: string) => Promise<GeocodeOutcome>;
@@ -136,7 +156,13 @@ export interface RenderAppResult extends RenderResult {
   readonly dataset: DatasetFetchControl;
   /** Queries the app actually sent to the geocoder. */
   readonly geocodeCalls: () => string[];
-  readonly bounds: typeof MIDTOWN_BOUNDS;
+  readonly bounds: MapBounds;
+  /**
+   * How many times the app called the controller factory. One map per container is the whole
+   * point of the feature switch, and this is the number that says so: a switch that rebuilt
+   * the map would push it past one.
+   */
+  readonly createCount: () => number;
 }
 
 export function renderApp(options: RenderAppOptions = {}): RenderAppResult {
@@ -156,11 +182,16 @@ export function renderApp(options: RenderAppOptions = {}): RenderAppResult {
   };
 
   let created: FakeController | null = null;
+  let createCount = 0;
 
-  const createController = (createOptions: Parameters<NonNullable<AppProps['createController']>>[0]) => {
+  const createController = (
+    createOptions: Parameters<NonNullable<AppProps['createController']>>[0],
+  ) => {
+    createCount += 1;
     created = createFakeController(createOptions, {
       autoReady: options.mapPending !== true,
-      bounds: MIDTOWN_BOUNDS,
+      bounds: options.bounds ?? MIDTOWN_BOUNDS,
+      withMap: options.withMap === true,
     });
     return created;
   };
@@ -185,5 +216,6 @@ export function renderApp(options: RenderAppOptions = {}): RenderAppResult {
     dataset,
     geocodeCalls: () => geocodeQueries,
     bounds: MIDTOWN_BOUNDS,
+    createCount: () => createCount,
   };
 }

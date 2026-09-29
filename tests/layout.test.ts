@@ -22,9 +22,12 @@
  * than pretending to have measured the result.
  */
 
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, resolve as resolvePath } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CSS_NO_COMMENTS,
+  cascadeFor,
   classesIn,
   declarationsFor,
   elementDeclarations,
@@ -500,6 +503,20 @@ describe('wrapped text (readability rather than a criterion)', () => {
     }
   });
 
+  it('the shell grid track may shrink below its content, or a phone loses its header', () => {
+    // `.eoy-app__body` is a one-column grid, and an implicit `auto` track takes its base size
+    // from the largest min-content contribution in it. `.eoy-modes` is a horizontal scroller
+    // with two `min-width: 9rem` options whose descriptions wrap, so that contribution is
+    // 740px — and `overflow-x: auto` does not reduce it, because that rule is about a flex or
+    // grid ITEM and this is a block inside a block. On a 390px phone the track became 740px,
+    // the header overflowed, and "Near me" and the other feature's switcher option were laid
+    // out past the right edge of the screen. `minmax(0, 1fr)` is the whole fix.
+    //
+    // The rule of the class is that the scroller scrolls and the track shrinks; a change
+    // back to a bare `auto` column reintroduces a 740px header on every phone.
+    expect(cascadeFor('eoy-app__body', [])['grid-template-columns']).toBe('minmax(0, 1fr)');
+  });
+
   it('the place name is set to pretty, so a wrapped name has no one-word last line', () => {
     // `pretty`, not `balance`: these are running text, and they are the dataset's own
     // UPPERCASE names, which wrap in the middle of a word's worth of letters rather than at
@@ -508,6 +525,94 @@ describe('wrapped text (readability rather than a criterion)', () => {
       expect(declarationsFor('light', selector)['text-wrap'], `.${selector} does not set text-wrap`).toBe(
         'pretty',
       );
+    }
+  });
+});
+
+/**
+ * EVERY `var(--token)` IN THE STYLESHEET NAMES A TOKEN THAT EXISTS.
+ *
+ * This is not a style preference and it is not caught by anything else in the repository, so
+ * it is worth spelling out what goes wrong. A `var()` that names an undefined custom property
+ * does not fall back to the next declaration, does not become the initial value, and does not
+ * show up as an error: the declaration it appears in is invalid at computed-value time and is
+ * dropped, silently, for every element the rule matches. `max-height: calc(100% -
+ * var(--eoy-header-height) - var(--eoy-space-6))` did exactly that — `--eoy-space-6` was never
+ * defined, so the wide-layout detail sheet had `max-height: none` and no height limit at all.
+ * Eat Outside never noticed, because its sheet is 649px tall and never needed the clamp. It
+ * became visible the moment Where NYC Walks opened a sheet with 37 survey bars in it: the
+ * panel grew past the viewport, and the sheet opened with its own title and its own close
+ * button above the top of the screen.
+ *
+ * The failure is invisible in a screenshot taken on a machine where the declaration happens
+ * not to matter, and it is invisible to a colour audit, so it is checked here against the raw
+ * stylesheet. Reading the text is enough: a token is defined somewhere in the file or it is
+ * not, and there is no cascade subtlety to get wrong.
+ */
+
+/**
+ * Custom property names set from TypeScript, as inline styles.
+ *
+ * `'--name': value` or `"--name": value`, which is how a computed custom property has to be
+ * written in TSX — the alternative, a cast on a bare object key, is the kind of thing
+ * `AGENTS.md` rules out. Walks `src/` recursively so the two halves of the channel cannot
+ * drift: a name the stylesheet reads but no component sets is still a failure, because it is
+ * the same bug with the tokens on the other side.
+ */
+function inlineCustomProperties(): string[] {
+  const names: string[] = [];
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(path);
+        continue;
+      }
+      if (!/\.(ts|tsx|css)$/.test(entry.name)) continue;
+      // A quoted `--name` in a TS or TSX file is a custom property: there is no other
+      // reading of it. The `as string` in `['--wnyc-swatch' as string]` is why this matches
+      // the name and not the whole key.
+      for (const match of readFileSync(path, 'utf8').matchAll(/['"`](--[\w-]+)['"`]/g)) {
+        names.push(match[1] as string);
+      }
+    }
+  };
+  walk(resolvePath(process.cwd(), 'src'));
+  return names;
+}
+describe('every custom property the stylesheet reads is one it defines', () => {
+  it('has no `var(--token)` naming a token that is neither defined nor set by a component', () => {
+    const defined = new Set([
+      ...[...CSS_NO_COMMENTS.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1] as string),
+      // A component may hand a value to the stylesheet through an inline style, and
+      // Where NYC Walks's legend does: four `--wnyc-swatch*` properties are set on the swatch
+      // element in `WalkLegend.tsx` and consumed by `.wnyc-legend__swatch` in the stylesheet.
+      // That is a legitimate second source, so the audit reads `src/` for them rather than
+      // pretending the stylesheet is the only one. A typo in either half still fails.
+      ...inlineCustomProperties(),
+    ]);
+    const read = new Set(
+      [...CSS_NO_COMMENTS.matchAll(/var\(\s*(--[\w-]+)/g)].map((match) => match[1] as string),
+    );
+
+    const missing = [...read].filter((token) => !defined.has(token)).sort();
+    expect(
+      missing,
+      `src/index.css reads custom properties it never defines: ${missing.join(', ')}. ` +
+        'A var() naming an undefined property invalidates the whole declaration at ' +
+        'computed-value time, so the rule silently does nothing.',
+    ).toEqual([]);
+  });
+
+  it('reads at least the properties the layout actually depends on', () => {
+    // A guard on the guard: an empty or trivially small read set would make the assertion
+    // above pass for the wrong reason, which is the failure mode this whole file is about.
+    const read = new Set(
+      [...CSS_NO_COMMENTS.matchAll(/var\(\s*(--[\w-]+)/g)].map((match) => match[1] as string),
+    );
+    expect(read.size).toBeGreaterThan(30);
+    for (const token of ['--eoy-header-height', '--eoy-space-4', '--eoy-tap']) {
+      expect(read.has(token), `nothing reads ${token}, so the token audit may be hollow`).toBe(true);
     }
   });
 });

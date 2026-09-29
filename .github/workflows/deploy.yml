@@ -3,13 +3,17 @@ name: deploy
 # Three ways in:
 #
 #   1. push to main             - a human or a merged PR changed code.
-#   2. workflow_run            - refresh-data finished successfully. A commit
-#                                pushed by GITHUB_TOKEN does NOT trigger the
-#                                `push` event above (GitHub suppresses workflow
-#                                runs created by the default token, to stop
-#                                recursion). Without this trigger a data-only
-#                                commit would sit on main and never be
-#                                published. This is the whole reason it exists.
+#   2. workflow_run            - a data refresh finished successfully.
+#                                refresh-data and refresh-walk-data BOTH push
+#                                with GITHUB_TOKEN, and a commit pushed by
+#                                GITHUB_TOKEN does NOT trigger the `push` event
+#                                above (GitHub suppresses workflow runs created
+#                                by the default token, to stop recursion).
+#                                Without this trigger a data-only commit would
+#                                sit on main and never be published. This is
+#                                the whole reason it exists. Listing only one of
+#                                the two refreshes is a silent failure: the
+#                                omitted one's commits land and never deploy.
 #   3. workflow_dispatch       - re-deploy by hand, no code change.
 #
 # A failed refresh-data never reaches here: the guard below requires a
@@ -21,6 +25,7 @@ on:
   workflow_run:
     workflows:
       - refresh-data
+      - refresh-walk-data
     types:
       - completed
   workflow_dispatch:

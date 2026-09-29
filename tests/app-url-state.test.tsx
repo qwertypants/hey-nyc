@@ -80,6 +80,8 @@ describe('url state', () => {
 
     // The written query parses back to the same state: a link round-trips.
     expect(parseUrlState(currentSearch())).toEqual({
+      // `mode` is omitted at its default, which is what the empty string above proves.
+      mode: 'eat',
       view: { lat: 40.7447, lng: -73.9924, zoom: 15.5 },
       filters: { type: 'roadway', borough: 'all' },
       selectedId: 'eoy-0000000000a1',

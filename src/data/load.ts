@@ -113,13 +113,22 @@ let cached: Promise<LoadedDataset> | null = null;
 /**
  * The shared promise. Concurrent and repeated callers reuse the same network request.
  *
- * `signal` only applies when THIS call is the one that starts the request; a cache hit
- * hands back the in-flight request untouched, so one consumer unmounting can never cancel
- * another consumer's load. Rejections are evicted so the next mount retries.
+ * NO SIGNAL IS PASSED TO THE UNDERLYING FETCH, AND THAT IS THE POINT. This promise is
+ * module-level, so it outlives any single caller — but a caller's `AbortSignal` does not.
+ * Binding the two meant that under React's StrictMode, which mounts, unmounts and remounts
+ * every effect in development, the first mount's cleanup aborted the request and the second
+ * mount was then handed the same already-aborted promise. The app landed in its error card
+ * in `npm run dev` and in no test, because the test harness is not under StrictMode.
+ *
+ * So cancellation is the CALLER's business, not the cache's. `useDataset` already keeps an
+ * `active` flag and ignores a late resolution; that is the right place to stop caring, and
+ * it means an unmount can no longer cancel a load another consumer is still waiting on.
+ *
+ * Rejections are evicted so the next mount retries.
  */
-export function loadLocationsOnce(signal?: AbortSignal): Promise<LoadedDataset> {
+export function loadLocationsOnce(): Promise<LoadedDataset> {
   if (cached === null) {
-    cached = loadLocations(signal).catch((error: unknown) => {
+    cached = loadLocations().catch((error: unknown) => {
       cached = null;
       throw error;
     });

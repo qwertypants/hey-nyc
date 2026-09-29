@@ -7,8 +7,8 @@
  *
  * Public surface:
  *   MIN_ZOOM, MAX_ZOOM, DEFAULT_VIEW, VIEW_LIMITS
- *   type MapView, type UrlState
- *   isValidLocationId, parseUrlState, serializeUrlState
+ *   DEFAULT_FEATURE_ID, type MapView, type UrlState
+ *   isValidLocationId, isFeatureId, readMode, parseUrlState, serializeUrlState
  *   clampView, roundView, sameView, isDefaultView
  *
  * Guarantees:
@@ -22,12 +22,19 @@
  *   A shared link describes a map view only; see `Privacy` in the module note below.
  *
  * Privacy: `UrlState` has no member that can hold a user position, and
- * `serializeUrlState` writes only the six whitelisted keys below. A geolocation fix is
+ * `serializeUrlState` writes only the seven whitelisted keys below. A geolocation fix is
  * applied to the map instance, never round-tripped through the URL.
+ *
+ * `mode` — WHICH FEATURE. See `src/features/registry.ts`: a feature's id is its URL slug,
+ * so `?mode=walk` and `?mode=eat` are the only two the app advertises. It is first in the
+ * key order and, like every other key here, is omitted at its default, so a shared link to
+ * the default feature carries no `mode` at all and the canonical empty query string is
+ * still `''`.
  */
 
 import { isBoroughFilter, isTypeFilter, NO_FILTER } from './filters';
 import type { BoroughFilter, Filters, TypeFilter } from './filters';
+import type { FeatureId } from '../features/registry';
 
 export interface MapView {
   readonly lng: number;
@@ -36,9 +43,38 @@ export interface MapView {
 }
 
 export interface UrlState {
+  /** Which feature the link is about. Never absent — an unknown slug resolves to this. */
+  readonly mode: FeatureId;
   readonly view: MapView;
   readonly filters: Filters;
   readonly selectedId: string | null;
+}
+
+/**
+ * The feature a bare link opens. It is the site's own name, and it is the only feature the
+ * app has always had, so a link that predates `mode` must keep meaning what it meant.
+ */
+export const DEFAULT_FEATURE_ID: FeatureId = 'eat';
+
+/**
+ * Every slug the app advertises, in the order the switcher shows them. A `?mode=` carrying
+ * anything else is not a feature — it is a typo or a hand-edited link, and it resolves to
+ * the default rather than to a blank screen.
+ */
+const FEATURE_IDS: readonly FeatureId[] = ['eat', 'walk'];
+
+export function isFeatureId(value: unknown): value is FeatureId {
+  return typeof value === 'string' && (FEATURE_IDS as readonly string[]).includes(value);
+}
+
+/**
+ * `readMode` is the ONE place that decides what an absent or unknown `?mode=` means, and
+ * `src/features/registry.ts` points at it by name for that reason. It is a function rather
+ * than a lookup at the parse site so that the rule cannot be re-implemented — by a feature
+ * module, by a test, or by the next person to add a third feature.
+ */
+export function readMode(raw: string | null | undefined): FeatureId {
+  return isFeatureId(raw) ? raw : DEFAULT_FEATURE_ID;
 }
 
 /**
@@ -145,7 +181,7 @@ export function parseUrlState(search: string): UrlState {
   try {
     params = new URLSearchParams(typeof search === 'string' ? search : '');
   } catch {
-    return { view: DEFAULT_VIEW, filters: NO_FILTER, selectedId: null };
+    return { mode: DEFAULT_FEATURE_ID, view: DEFAULT_VIEW, filters: NO_FILTER, selectedId: null };
   }
 
   const read = (key: string): string | null => {
@@ -179,6 +215,7 @@ export function parseUrlState(search: string): UrlState {
   });
 
   return {
+    mode: readMode(read('mode')),
     view,
     filters: { type, borough },
     selectedId: isValidLocationId(rawSelected) ? rawSelected : null,
@@ -187,7 +224,8 @@ export function parseUrlState(search: string): UrlState {
 
 /**
  * Canonical query string, `?`-prefixed, or `''` when everything is at its default.
- * Only these six keys are ever written.
+ * Only these seven keys are ever written, in this order: mode, lat, lng, z, type,
+ * borough, sel.
  */
 export function serializeUrlState(state: UrlState): string {
   const view = clampView(state.view);
@@ -196,8 +234,15 @@ export function serializeUrlState(state: UrlState): string {
     borough: isBoroughFilter(state.filters?.borough) ? state.filters.borough : 'all',
   };
   const selectedId = isValidLocationId(state.selectedId) ? state.selectedId : null;
+  // `state.mode` is a required member of the type and is still checked: this function is
+  // documented as never throwing for ANY input, and the hostile-input case in
+  // tests/url-state.test.ts hands it an object with no `mode` at all.
+  const mode = isFeatureId(state.mode) ? state.mode : DEFAULT_FEATURE_ID;
 
   const params = new URLSearchParams();
+  // First, and omitted at its default — the same rule every other key follows, which is why
+  // the canonical link for "the whole city, no filters, default feature" is still empty.
+  if (mode !== DEFAULT_FEATURE_ID) params.set('mode', mode);
   if (!isDefaultView(view)) {
     params.set('lat', String(view.lat));
     params.set('lng', String(view.lng));
@@ -211,12 +256,17 @@ export function serializeUrlState(state: UrlState): string {
   return query === '' ? '' : `?${query}`;
 }
 
-/** Narrow helper for a single dimension, used by Stream C's filter controls. */
+/** Narrow helper for a single dimension, used by the shell's filter controls. */
 export function urlStateWithFilters(state: UrlState, filters: Filters): UrlState {
-  return { view: state.view, filters, selectedId: state.selectedId };
+  return { mode: state.mode, view: state.view, filters, selectedId: state.selectedId };
 }
 
-/** Narrow helper: the view alone, with filters and selection preserved. */
+/** Narrow helper: the view alone, with mode, filters and selection preserved. */
 export function urlStateWithView(state: UrlState, view: MapView): UrlState {
-  return { view: clampView(view), filters: state.filters, selectedId: state.selectedId };
+  return {
+    mode: state.mode,
+    view: clampView(view),
+    filters: state.filters,
+    selectedId: state.selectedId,
+  };
 }

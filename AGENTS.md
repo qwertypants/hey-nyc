@@ -42,6 +42,7 @@ One source of truth, or none.
 | [0003](docs/adr/0003-keyless-basemap-three-runtime-deps.md) | OpenFreeMap via one env var; three runtime deps; standard-library pipeline | add a dependency, swap the basemap, or add geocoding |
 | [0004](docs/adr/0004-record-decisions-as-adrs.md) | Decisions are ADRs, recalled from an index. Docs only, no CI gate | change the process itself |
 | [0005](docs/adr/0005-google-maps-directions-handoff.md) | The "Directions" link hands off to a key-free Google Maps URL, because `geo:` is a dead click on desktop | change the directions handoff, or act on "no Google" in the Never list below |
+| [0006](docs/adr/0006-lead-with-the-bi-annual-counts-not-the-live-feed.md) | Lead with the bi-annual counts, not the live feed. Never sum the twin sensor ids; freshness is derived, not read from `status` | touch `scripts/walk/`, the walk contract, or the walk refresh |
 
 ## Verify
 
@@ -62,7 +63,7 @@ not "fix" formatting as a side effect of another change; match the surrounding
 file by hand. `npm run lint` and `npm run typecheck` are the only automated style
 gates.
 
-There are 511 TypeScript tests and 213 Python tests. Both suites run in well
+There are 940 TypeScript tests and 451 Python tests. Both suites run in well
 under a second. **Every behaviour change needs a test that would fail without
 your change** — not "the existing tests still pass".
 
@@ -120,6 +121,21 @@ without a new ADR.
   reports tile and geocoding problems.
 - **No barrel files, no `index.ts` re-exports.** Import the module you mean.
 - **No hand-picked basemap tiles.** The style URL is the only seam.
+- **No interpolated pedestrian activity, and no heatmap implying it.** DOT
+  measured pedestrians at 114 screenline sites and 4 automated counters. A
+  heatmap would assert knowledge about the streets between them.
+- **Never sum the twin `sensor_id` values.** Each physical counter is
+  published twice with byte-identical counts, so a `sensor_id`-keyed aggregate
+  doubles the city's measured volume by exactly 2× and looks entirely
+  plausible. See [ADR 0006](docs/adr/0006-lead-with-the-bi-annual-counts-not-the-live-feed.md).
+- **Never combine the two DOT programs numerically.** The bi-annual screenline
+  surveys and the automated counters are different measurement systems.
+- **Never repair DOT's odd values.** `may_22_p_m`, `Staten Isla` and
+  `Harlem River Bridges` are published verbatim and warned about. Correcting
+  them needs a table we would have to invent.
+- **Never read freshness from `status`.** It is `raw` on all 1.5M pedestrian
+  rows. It is derived from the newest observation, against the feed's daily
+  batch cadence.
 
 If a task genuinely requires one of these, stop and open an issue. Do not build
 it in the same pull request as the thing that wanted it.
@@ -182,15 +198,23 @@ optimistically.
 
 ```
 src/
-  components/   UI. No barrel files.
-  data/         dataset.ts loads and runtime-validates the artifacts
+  components/   Shared UI primitives. No barrel files.
+  data/         dataset.ts loads and runtime-validates the eat artifacts;
+                walk/ does the same for the walk artifacts
+  features/     registry.ts is the seam between the shell and a feature.
+                shell/ owns the map, the mode switcher and the generic
+                list/legend/sheet. eat/ and walk/ each own their data,
+                layers, wording and detail. Never import across features.
   lib/          pure functions, one concern per file, unit-tested
-  map/          MapLibre layers over the GeoJSON we control
-  types/        location.ts — the frozen contract. Read the header comment.
-scripts/        Python pipeline. Standard library only. Importable and runnable.
-tests/          vitest. python/ for the pipeline. helpers/ and setup.ts.
+  map/          the MapLibre instance, basemap style, camera, motion
+  types/        location.ts and walk.ts — two frozen contracts. Read the
+                header comments.
+scripts/        Python pipelines. Standard library only. Importable and
+                runnable. walk/ is the Where NYC Walks pipeline.
+tests/          vitest. python/ for the pipelines. helpers/ and setup.ts.
 docs/           Documentation. adr/ holds the decision records.
-public/data/    GENERATED. Never hand-edit.
+public/data/    GENERATED. Never hand-edit. eat artifacts at the top level,
+                walk artifacts under walk/.
 data/           raw snapshot (git-ignored) and processed/report.json.
 ```
 

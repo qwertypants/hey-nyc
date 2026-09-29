@@ -63,6 +63,26 @@ export interface FakeMap {
   setRenderedFeatures(features: readonly unknown[]): void;
   /** The ids of the layers the controller added. */
   readonly layerIds: () => string[];
+  /**
+   * The ids of the sources currently registered. `removeLayer` and `removeSource` keep this
+   * honest, so `tests/feature-switching.test.tsx` can assert that a feature really took
+   * everything down rather than that a counter happened to go back to where it started.
+   */
+  readonly sourceIds: () => string[];
+  /**
+   * How many handlers are registered right now, across every event type. A feature that
+   * attaches a click handler and forgets to detach it shows up here immediately — which is
+   * the leak a repeated switch produces, and the thing this fake exists to make visible.
+   */
+  readonly listenerCount: () => number;
+  /**
+   * Every call `queryRenderedFeatures` received, in order, WITH ITS OPTIONS. Typed rather
+   * than `unknown[]` because "the hit test was scoped to these layers" is a claim about the
+   * second argument, and a test cannot check a claim about a value it cannot read.
+   */
+  readonly queries: () => ReadonlyArray<{ readonly point: unknown; readonly options: unknown }>;
+  /** Every `setFilter(layerId, filter)` pair, in order. */
+  readonly setFilterCalls: () => ReadonlyArray<{ readonly layerId: string; readonly filter: unknown }>;
 }
 
 interface Registration {
@@ -77,6 +97,8 @@ export function createFakeMap(options: FakeMapOptions = {}): FakeMap {
   const registrations: Registration[] = [];
   const sources = new Map<string, GeoJSONSourceSpecification>();
   const layers = new Map<string, AddLayerObject>();
+  const filters: Array<{ readonly layerId: string; readonly filter: unknown }> = [];
+  const queries: Array<{ readonly point: unknown; readonly options: unknown }> = [];
   const center = options.center ?? { lng: -73.9855, lat: 40.758 };
   const zoom = options.zoom ?? 12;
   const clusterExpansionZoom = options.clusterExpansionZoom ?? 14;
@@ -114,6 +136,20 @@ export function createFakeMap(options: FakeMapOptions = {}): FakeMap {
 
   const map = {
     on,
+
+    off(type: string, layerIdOrHandler: string | ((event: never) => void), maybeHandler?: (event: never) => void) {
+      const handler =
+        (typeof layerIdOrHandler === 'string' ? maybeHandler : layerIdOrHandler) ??
+        ((): void => undefined);
+      const layerId = typeof layerIdOrHandler === 'string' ? layerIdOrHandler : undefined;
+      for (let i = registrations.length - 1; i >= 0; i -= 1) {
+        const entry = registrations[i];
+        if (entry !== undefined && entry.type === type && entry.layerId === layerId && entry.handler === handler) {
+          registrations.splice(i, 1);
+        }
+      }
+      return map;
+    },
 
     easeTo(easeToOptions: EaseToOptions) {
       easeToCalls.push(easeToOptions);
@@ -174,11 +210,29 @@ export function createFakeMap(options: FakeMapOptions = {}): FakeMap {
       return map;
     },
 
-    setFilter() {
+    // MapLibre refuses to remove a layer that is not there, and so does this: a feature that
+    // tears down twice must fail loudly here rather than silently succeeding.
+    removeLayer(id: string) {
+      if (!layers.delete(id)) {
+        throw new Error(`removeLayer("${id}"): no such layer`);
+      }
       return map;
     },
 
-    queryRenderedFeatures() {
+    removeSource(id: string) {
+      if (!sources.delete(id)) {
+        throw new Error(`removeSource("${id}"): no such source`);
+      }
+      return map;
+    },
+
+    setFilter(layerId: string, filter: unknown) {
+      filters.push({ layerId, filter });
+      return map;
+    },
+
+    queryRenderedFeatures(point?: unknown, options?: unknown) {
+      queries.push({ point, options });
       return renderedFeatures;
     },
 
@@ -206,6 +260,10 @@ export function createFakeMap(options: FakeMapOptions = {}): FakeMap {
       renderedFeatures = features;
     },
     layerIds: () => [...layers.keys()],
+    sourceIds: () => [...sources.keys()],
+    listenerCount: () => registrations.length,
+    queries: () => queries,
+    setFilterCalls: () => filters,
   };
 }
 

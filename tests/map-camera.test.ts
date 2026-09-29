@@ -24,10 +24,11 @@ import { createMapController } from '../src/map/controller';
 import type { MapController } from '../src/map/controller';
 import type { CreateMapOptions } from '../src/map/createMap';
 import { prefersReducedMotion } from '../src/map/motion';
-import { indexCollection } from '../src/data/dataset';
-import type { LoadedDataset } from '../src/data/load';
+import { createEatFeature } from '../src/features/eat/eatFeature';
+import type { FeatureHandlers } from '../src/features/registry';
 import type { MapBounds } from '../src/lib/bounds';
 import { FIXTURES, METADATA_FIXTURE, makeCollection } from './helpers/fixtures';
+import { indexCollection } from '../src/data/dataset';
 import { clusterFeature, createFakeMap } from './helpers/fakeMap';
 import type { FakeMap } from './helpers/fakeMap';
 import { stubPrefersReducedMotion } from './helpers/reducedMotion';
@@ -55,10 +56,34 @@ vi.mock('../src/map/createMap', () => ({
   },
 }));
 
-const DATASET: LoadedDataset = {
-  ...indexCollection(makeCollection(FIXTURES)),
-  metadata: METADATA_FIXTURE,
+/**
+ * The Eat Outside feature, built with no React around it.
+ *
+ * The cluster test below used to be able to lean on the controller for this: the controller
+ * owned the layers, so wiring the interactions was part of creating it. It does not any more
+ * — a feature owns its own drawing, which is what makes a switch a layer swap — so the test
+ * mounts the feature itself, through the same public method the shell calls.
+ */
+const INDEX = indexCollection(makeCollection(FIXTURES));
+
+const NO_HANDLERS: FeatureHandlers = {
+  onSelect: () => undefined,
+  onClearSelection: () => undefined,
+  onError: () => undefined,
 };
+
+function eatFeature() {
+  return createEatFeature({
+    status: 'ready',
+    locations: INDEX.locations,
+    byId: INDEX.byId,
+    coords: INDEX.coords,
+    collection: INDEX.collection,
+    metadata: METADATA_FIXTURE,
+    error: null,
+    retry: () => undefined,
+  });
+}
 
 const BOUNDS: MapBounds = { west: -74.02, south: 40.7, east: -73.94, north: 40.79 };
 
@@ -66,7 +91,7 @@ const TIMES_SQUARE: [number, number] = [-73.9855, 40.758];
 
 /** A controller whose style has loaded, which is when MapLibre starts accepting camera moves. */
 function createController(): { controller: MapController; map: FakeMap } {
-  const controller = createMapController({ container: document.createElement('div'), dataset: DATASET });
+  const controller = createMapController({ container: document.createElement('div') });
   const map = mounted.current;
   if (map === null) throw new Error('the map was never created');
   map.loadStyle();
@@ -140,24 +165,52 @@ describe('a camera move does not animate when the user has prefers-reduced-motio
     stubPrefersReducedMotion(true);
     const { controller, map } = createController();
 
-    controller.fitToResults();
+    // The extent is computed by the feature, for the same reason `focusOn` takes a position:
+    // the controller has no dataset.
+    controller.fitToResults(BOUNDS);
 
     expect(map.fitBoundsCalls).toHaveLength(1);
     expect(map.fitBoundsCalls[0]?.options).toMatchObject({ duration: 0, essential: false });
+  });
+
+  it('fitToResults to nothing moves nothing, rather than to a degenerate box', () => {
+    stubPrefersReducedMotion(true);
+    const { controller, map } = createController();
+
+    controller.fitToResults(null);
+
+    expect(map.fitBoundsCalls).toHaveLength(0);
   });
 
   it('selecting a location from the list does not animate', () => {
     stubPrefersReducedMotion(true);
     const { controller, map } = createController();
 
-    expect(controller.focusOn('eoy-0000000000a1')).toBe(true);
+    expect(controller.focusOn('eoy-0000000000a1', { lat: 40.7223, lng: -73.9875 })).toBe(true);
 
     expect(map.easeToCalls[0]).toMatchObject({ duration: 0, essential: false });
+  });
+
+  it('focusOn an id the active feature does not have does nothing at all', () => {
+    stubPrefersReducedMotion(false);
+    const { controller, map } = createController();
+
+    // This is the switch case: an id belonging to the other feature cannot be flown to.
+    expect(controller.focusOn('wsh-0000000000a1', null)).toBe(false);
+    expect(map.easeToCalls).toHaveLength(0);
   });
 
   it('expanding a cluster does not animate, even though it is a frame away in another module', async () => {
     stubPrefersReducedMotion(true);
     const { map } = createController();
+    const feature = eatFeature();
+    feature.state.setHandlers(NO_HANDLERS);
+    // A feature mounted BY HAND, and handed the map with no cast. It used to read
+    // `map.map as unknown as MapLibreLike` — the same widening `useActiveFeature` needed,
+    // for the same reason, because `MapLibreLike.on` was monomorphic and MapLibre's is an
+    // overload set. The seam is a supertype of the engine now, so a test that mounts a
+    // feature by hand is the second place the two meet and it needs nothing.
+    feature.mount(map.map);
     map.setRenderedFeatures([clusterFeature(7, TIMES_SQUARE)]);
 
     map.fire('click', { point: [10, 10] });

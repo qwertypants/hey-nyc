@@ -21,6 +21,8 @@ The short version. Read the ADR when the change you are making touches it.
 | [0003](adr/0003-keyless-basemap-three-runtime-deps.md) | [A keyless basemap and three runtime dependencies](adr/0003-keyless-basemap-three-runtime-deps.md) — OpenFreeMap via one env var; `maplibre-gl`, `react`, `react-dom` and nothing else ships | Accepted *(retroactive)* | 2026-09-27 |
 | [0004](adr/0004-record-decisions-as-adrs.md) | [Record decisions as ADRs, recalled from an index](adr/0004-record-decisions-as-adrs.md) — this file, `docs/adr/`, `AGENTS.md`, and the trigger list below. Docs only, no CI gate | Accepted | 2026-09-27 |
 | [0005](adr/0005-google-maps-directions-handoff.md) | [Hand directions to Google Maps over a web URL](adr/0005-google-maps-directions-handoff.md) — the "Directions" link opens a key-free Maps URL, because `geo:` is a dead click on desktop | Accepted | 2026-09-28 |
+| [0006](adr/0006-lead-with-the-bi-annual-counts-not-the-live-feed.md) | [Lead with the bi-annual counts, not the live feed](adr/0006-lead-with-the-bi-annual-counts-not-the-live-feed.md) — Where NYC Walks is led by DOT's 114-site screenline program; the 4-counter automated feed is a secondary layer with derived freshness, and its twin sensor ids are never summed | Accepted | 2026-09-28 |
+| [0007](adr/0007-fault-a-counter-publishing-zeroes-is-not-fresh.md) | [A counter that publishes zeroes is not a counter reporting](adr/0007-fault-a-counter-publishing-zeroes-is-not-fresh.md) — a fifth staleness state, `faulted`, fired by a run of 7 or more consecutive days with no nonzero reading, because a dead counter emitting 192 rows of zeros a day is the *freshest* thing in the feed | Accepted | 2026-09-28 |
 
 0001–0003 are marked *retroactive*: those decisions were made and reasoned on
 2026-09-27 and written down afterwards, reconstructed from commit `9c18edd` and
@@ -41,7 +43,9 @@ Write one **before** you write the code, if your change is any of these:
   [ADR 0002](adr/0002-hash-features-never-the-timestamp.md).
 - **A second feature kind in `cafes.geojson`, or a second NYC Open Data
   layer.** The filename is part of the contract. See
-  [`data-pipeline.md`](data-pipeline.md#adding-a-new-nyc-open-data-layer).
+  [`data-pipeline.md`](data-pipeline.md#adding-a-new-nyc-open-data-layer), and
+  [ADR 0006](adr/0006-lead-with-the-bi-annual-counts-not-the-live-feed.md) for
+  the one that has been done.
 - **A change to the basemap, the geocoder, or the data source.** See
   [`basemap.md`](basemap.md).
 - **Relaxing anything in "What not to add"** in
@@ -109,5 +113,9 @@ Not everything in `docs/` is a decision, and this index does not try to be.
   one breaks. [`data-pipeline.md`](data-pipeline.md).
 - **The schema itself** — what each field means and what the current numbers
   are. [`data-dictionary.md`](data-dictionary.md).
+- **The walk methodology** — what a sensor reading is, how the activity labels
+  and the freshness states are derived, and what the pedestrian data cannot say.
+  [`where-nyc-walks.md`](where-nyc-walks.md), with the measurements behind it
+  in [`walk-data-analysis.md`](walk-data-analysis.md).
 - **Data refreshes.** The `data:` commits are the bot's, and they are not
   decisions.
