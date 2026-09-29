@@ -106,3 +106,76 @@ describe('the head declares the browser chrome colour for both colour schemes', 
     expect(chromeColour('dark')).toBe(chromeColour('light'));
   });
 });
+
+interface FontPreload {
+  readonly href: string;
+  readonly tag: string;
+}
+
+/**
+ * Every `<link rel="preload" as="font">` in the head.
+ *
+ * Parsed per-attribute rather than matched with one `<link rel="preload" href="…"` pattern
+ * because that pattern assumes a single-line tag, and the preload is written across seven lines
+ * like every other multi-attribute tag in this head. Scanning the tag first and reading the
+ * attributes out of it is what `themeColors()` above already does, and it is the reason
+ * `[^>]*` rather than a literal space is the thing between `<link` and `>`: `[^>]*` spans
+ * newlines, a space does not.
+ */
+function fontPreloads(): FontPreload[] {
+  const found: FontPreload[] = [];
+  for (const tag of HEAD.match(/<link\b[^>]*>/g) ?? []) {
+    if (!/\brel="preload"/.test(tag)) continue;
+    if (!/\bas="font"/.test(tag)) continue;
+    const href = /\bhref="([^"]*)"/.exec(tag)?.[1];
+    if (href === undefined) continue;
+    found.push({ href, tag });
+  }
+  return found;
+}
+
+describe('the font the first frame needs', () => {
+  /**
+   * DM Sans is self-hosted (no third-party request on load — see README, "no tracking"), and
+   * every glyph in the first frame is drawn in it. Without a preload the browser discovers
+   * the woff2 only after it has parsed `src/index.css`, so the first paint is in the fallback
+   * and then reflows when the real face lands. `font-display: swap` makes that swap the
+   * default rather than the exception, which is right for a text-heavy shell and wrong for a
+   * 37KB file the first frame is waiting on.
+   *
+   * Asserted against the filesystem as well as the markup, so a preload that names a font
+   * nobody serves is a failure here instead of a 404 in production.
+   */
+  it('preloads the latin subset, and the file it names exists', () => {
+    const [preload, ...extra] = fontPreloads();
+    if (preload === undefined) {
+      throw new Error('index.html preloads no font');
+    }
+    expect(extra, 'index.html preloads more than one font').toEqual([]);
+
+    expect(
+      preload.href,
+      'the latin subset is the one the first frame is drawn in',
+    ).toContain('dm-sans-latin.woff2');
+
+    // `crossorigin` is required: a font fetched without it is a different request to the
+    // same URL and is fetched twice, which is the bug this preload is meant to avoid.
+    expect(preload.tag, 'a font preload without crossorigin is fetched twice').toContain(
+      'crossorigin',
+    );
+
+    const served = preload.href.replace(/^\//, '');
+    expect(
+      existsSync(resolvePath(process.cwd(), 'public', served)),
+      `${preload.href} is preloaded but public/${served} does not exist`,
+    ).toBe(true);
+  });
+
+  it('does not preload the latin-ext subset, which no first frame uses', () => {
+    // Preloading both costs a second connection and a second download for glyphs the first
+    // frame does not contain. The `@font-face` `unicode-range` keeps latin-ext out of the
+    // latin download; preloading it would undo that.
+    const preloads = fontPreloads();
+    expect(preloads.map((preload) => preload.href)).toEqual(['/fonts/dm-sans-latin.woff2']);
+  });
+});
