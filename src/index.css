@@ -157,6 +157,17 @@
   /* Honours the notch / home indicator on phones. */
   --eoy-safe-bottom: env(safe-area-inset-bottom, 0px);
 
+  /*
+   * The MapLibre attribution's own height, measured rather than guessed: 60px, which is two
+   * lines of `--eoy-text-xs` links at the 320px floor. Three boxes are anchored to the
+   * bottom of the map — the floating bar, this attribution, and the legend — and at 390 × 844
+   * the bar sat at y 800→844 while the attribution sat at y 784→844, so 44px of a 60px
+   * attribution was behind an opaque bar, taking the NYC Open Data credit and the control
+   * that expands it with it. A token is what lets the legend clear both without a second
+   * hand-tuned number to keep in step.
+   */
+  --eoy-attrib-height: 3.75rem;
+
   /* Large touch targets: 44px is the WCAG 2.5.5 AAA floor and the practical floor for a
      phone held one-handed while walking. 2.5.8 AA asks for 24px; nothing in this app is
      smaller than 32px even when it is a secondary control. */
@@ -1598,10 +1609,26 @@ button {
   box-shadow: 0 0 0 2px var(--eoy-swatch-edge);
 }
 
+/*
+ * MapLibre anchors the attribution to the bottom-right corner and we never moved it, so it
+ * grew UNDER the floating bar. `bottom` is all that is needed: the control is the only thing
+ * in that corner, and moving it up rather than hiding it is what keeps the ODbL credit for
+ * OpenStreetMap and our own NYC Open Data credit visible without a tap.
+ */
+.maplibregl-ctrl-bottom-right {
+  bottom: calc(var(--eoy-tap) + var(--eoy-safe-bottom) + var(--eoy-space-2));
+}
+
 .eoy-legend {
   position: absolute;
   left: var(--eoy-space-3);
-  bottom: calc(var(--eoy-tap) + var(--eoy-space-5) + var(--eoy-space-3));
+  /*
+   * Above the attribution, which is itself above the bar. The gap the legend used to keep
+   * from the bar is the attribution's height now, so nothing is lost and the map gives up
+   * 60px at the bottom edge — the same 60px it was already giving up to a credit that
+   * nothing could read.
+   */
+  bottom: calc(var(--eoy-tap) + var(--eoy-safe-bottom) + var(--eoy-space-2) + var(--eoy-attrib-height));
   z-index: 22;
   max-width: 15rem;
   padding: var(--eoy-space-2);
@@ -2055,10 +2082,6 @@ button {
     padding: 0 var(--eoy-space-4) var(--eoy-space-3);
   }
 
-  .eoy-legend {
-    bottom: calc(var(--eoy-tap) + var(--eoy-space-5) + var(--eoy-space-3));
-  }
-
   /*
    * On a wide screen the sheet becomes a side panel beside the map instead of a bottom
    * sheet over it. `max-height` is derived from the header rather than `top` being a
@@ -2347,7 +2370,12 @@ button {
 .wnyc-legend {
   position: absolute;
   left: var(--eoy-space-4);
-  bottom: var(--eoy-space-4);
+  /*
+   * The same offset as `.eoy-legend`, so the two features' legends are the same object to a
+   * reader. This one was at `--eoy-space-4`, which is directly UNDER the floating bar, so the
+   * walk legend was overlapping it too.
+   */
+  bottom: calc(var(--eoy-tap) + var(--eoy-safe-bottom) + var(--eoy-space-2) + var(--eoy-attrib-height));
   z-index: 2;
   max-width: min(20rem, calc(100% - 2 * var(--eoy-space-4)));
   padding: var(--eoy-space-2) var(--eoy-space-3);

@@ -866,3 +866,76 @@ describe('a phone in landscape is a short viewport, not a narrow one', () => {
     expect(wide?.[1]).toContain('var(--eoy-space-5)');
   });
 });
+
+describe('the map furniture at the bottom of the screen is stacked, not overlapping', () => {
+  /**
+   * Three things are anchored to the bottom edge of the map: the floating count bar, the
+   * MapLibre attribution, and the legend. Measured at 390 × 844 the bar sat at y 800→844 and
+   * the attribution at y 784→844 — 44px of a 60px attribution behind the bar, which put the
+   * NYC Open Data credit and the control that expands the attribution out of reach.
+   *
+   * A screenshot does not catch this, because the bar is opaque and the attribution is
+   * simply not drawn where the bar is. This is a declaration check for the same reason
+   * everything else in this file is: the ORDER is what has to hold, and the order is
+   * expressible in the stylesheet.
+   */
+  const STACKED = ['maplibregl-ctrl-bottom-right', 'eoy-legend', 'wnyc-legend'] as const;
+
+  it.each(STACKED)('%s declares a bottom offset that clears the floating bar', (className) => {
+    const bottom = declarationsFor('light', className)['bottom'];
+    expect(bottom, `${className} has no \`bottom\`, so it defaults to auto`).toBeDefined();
+    expect(bottom, `${className} must clear the bottom bar`).toContain('var(--eoy-tap)');
+    expect(bottom, `${className} must honour the home indicator`).toContain('var(--eoy-safe-bottom)');
+  });
+
+  it('gives the attribution its own height token, because it is a measured box', () => {
+    // 60px: two lines of `--eoy-text-xs` links at the 320px floor, which is the narrowest
+    // viewport the app supports and therefore the case that wraps to the most lines. A token
+    // rather than a literal, so the legend's offset moves with it if the credits ever change.
+    const value = palette('light')['--eoy-attrib-height'];
+    expect(value, '--eoy-attrib-height is not declared in the first :root block').toBeDefined();
+    expect(value).toMatch(/rem$/);
+  });
+
+  it('stacks them in order, rather than merely making the three numbers different', () => {
+    /*
+     * The two legends are deliberately the SAME offset, and this is not a contradiction of
+     * "none can cover another": they belong to two features that are never both on screen —
+     * `src/features/registry.ts` mounts one — so they cannot overlap each other, and two
+     * different numbers for them would only mean two hand-tuned numbers to keep in step. The
+     * pair that DID collide is the attribution and the legend, so that is the pair to order.
+     *
+     * Asserted by resolving the offsets rather than by comparing strings, because "different"
+     * is a weaker claim than "the legend is above the attribution": a legend could clear the
+     * bar and still sit under the credit. jsdom has no layout, so the numbers are all the
+     * stylesheet can promise — but the numbers are real ones.
+     */
+    const offset = (className: string): number => {
+      const declared = declarationsFor('light', className)['bottom'] ?? '';
+      const found = lengthsToPx('light', declared);
+      if (found === null) {
+        throw new Error(`.${className} declares a bottom of "${declared}", which is not a length this suite can measure`);
+      }
+      return found;
+    };
+
+    const attrib = offset('maplibregl-ctrl-bottom-right');
+    expect(offset('eoy-legend')).toBe(offset('wnyc-legend'));
+
+    for (const legend of ['eoy-legend', 'wnyc-legend'] as const) {
+      expect(offset(legend), `.${legend} must clear the attribution, which sits between it and the bar`)
+        .toBeGreaterThan(attrib);
+      const declared = declarationsFor('light', legend)['bottom'] ?? '';
+      expect(declared, `.${legend} does not account for the attribution's height`).toContain(
+        'var(--eoy-attrib-height)',
+      );
+    }
+
+    // ...and the attribution accounts for the BAR and nothing else. Accounting for itself is
+    // the mistake that doubles the gap and leaves the credit a whole row above the map.
+    const attribDeclaration = declarationsFor('light', 'maplibregl-ctrl-bottom-right')['bottom'] ?? '';
+    expect(attribDeclaration, 'the attribution must not account for itself').not.toContain(
+      'var(--eoy-attrib-height)',
+    );
+  });
+});
