@@ -253,12 +253,17 @@ stitched the replacement's series onto the old ids across the handover. The
 28-day all-zero run at 2022-11-03 → 2022-11-30 (see
 [anomalies](#anomalies-and-drift-risks)) is that handover.
 
-So `resolve_counter_identity()` groups on `counters_serial` and falls back to
-rounded coordinates — but grouping on serial alone produces **two** Willis Ave
-records, not one, because the two serials are different strings. The current
-implementation will publish the same location twice and double its counts a
-second time. This is not a theoretical concern: it is what the current code
-does. **Open question — see below.**
+So grouping on `counters_serial` alone would produce **two** Willis Ave records,
+not one, because the two serials are different strings. That is why
+`resolve_counter_identity()` runs a **second pass**: after grouping on the
+serial, it clusters the groups on the set of `sensor_ids` they carry and on
+rounded coordinates, keeps the lexicographically greatest serial as canonical,
+and records the others as aliases. See `_merge_serial_aliases()` in
+`scripts/walk/_common.py:761`.
+
+The shipped `sensors.geojson` has **four** features for four physical counters,
+with Willis Ave appearing once carrying both `300028963` and `300029648`, so the
+doubling is not in the published data.
 
 ## Timestamp semantics
 
@@ -268,7 +273,11 @@ The source documentation says:
 
 (`/api/views/ct66-47at.json`, dataset `description`.) That sentence is what
 `SOURCE_UTC_OFFSET = timedelta(hours=-5)` in `scripts/walk/_common.py` is
-built on.
+built on — but only as a **degraded fallback** for a host with no tz database.
+`NYC_TZ` resolves to `ZoneInfo("America/New_York")` whenever the standard library
+can provide it, and `parse_source_timestamp()` uses that, so a July timestamp is
+`-04:00`. The degraded path is reported via `NYC_TZ_IS_FULL` rather than
+silent.
 
 **The data contradicts the documentation, and the data is right.**
 
@@ -441,12 +450,18 @@ The 2 in the third row are labelled `May22_pM` and `May23_pM` in the source's
 own display names — the `PM` got split into a `p` and an `m`. They hold real
 data: `may_22_p_m` is non-null for 112 locations, `may_23_p_m` for 112.
 
-**`HISTORY_COLUMN_RE` in `scripts/walk/_common.py` matches the first two rows
-of that table and not the third.** The May 2022 and May 2023 evening surveys
-are silently dropped today. The docstring above the regex says "106 columns" and
-describes two spellings; the truth is 111 columns and three. That is a live
-defect, not a documentation drift, and it is worth an issue before anything
-else on this feature ships.
+**`HISTORY_COLUMN_RE` in `scripts/walk/_common.py` matches all three rows of
+that table**, via the period token `p?_?m`, and canonicalises `p_m` onto the same
+`pm` period because it is the same measurement. The docstring above the regex
+now says 111 columns and three spellings, and the build reports
+`consumedCountColumns: 111` with `unhandledCountColumns: 0`.
+
+When this section was written the regex matched only the first two rows, so those
+224 populated observations (112 locations × 2 surveys) were silently dropped. It
+was a live defect at the time. It is fixed, and `COUNT_COLUMN_SHAPE_RE` is a
+deliberately broader shape-detector used as a schema-drift check, so a *fourth*
+spelling is now caught by not matching any understood pattern rather than by a
+hand-maintained count.
 
 `may_22_pm` does not exist and Socrata says so, which is a cheap way to prove
 the third spelling is the real one:
@@ -835,9 +850,21 @@ says nothing about the kilometres between them.
    between midnight and 06:00. That is the truth: those are the hours this data
    can say almost nothing about, and a confident "typical" would be a worse
    answer than an honest blank.
-3. **A fault gate runs before the label is computed, and it overrides it.** See
-   [anomalies](#anomalies-and-drift-risks). No percentile or ratio is
-   published for a counter that fails it.
+3. **A fault gate runs before the label is computed, and it overrides the
+   staleness the age buckets would have published.** See
+   [anomalies](#anomalies-and-drift-risks) and
+   [ADR 0007](adr/0007-fault-a-counter-publishing-zeroes-is-not-fresh.md). A
+   counter that fails it is published `staleness: "faulted"` and
+   `active: false` even when its newest observation is an hour old, which is what
+   the age buckets alone would have called `fresh`.
+
+   It does **not** suppress the numbers. `count`, `expected`, `percentile` and
+   `ratio` are still published, as they are for an `offline` counter, because
+   deleting them would hide the evidence that produced the fault — the whole
+   argument is a run of real measurements that happen to be zero. What is
+   withheld is the *belief* in them: the staleness says the counter is broken and
+   the detail headline says so in words, so the number below is read as a broken
+   instrument rather than an empty street.
 
 Measured ratio distribution for the two live counters, 8-week median baseline,
 over the observations where the baseline median is above zero:
@@ -1099,6 +1126,13 @@ for a month, will produce confident and wrong labels unless a fault gate runs
 first. `status` will not catch it. `granularity` will not catch it. The
 `direction` split and the all-zero-run detector will.
 
+As shipped, the all-zero-run half runs and is
+[ADR 0007](adr/0007-fault-a-counter-publishing-zeroes-is-not-fresh.md); the
+`direction` split does not, and cannot until there is a case of a lopsided split
+in a snapshot to tune it against. So a counter that *latches* — reports, on
+schedule, a plausible one-directional split — is still a live failure mode, and
+this paragraph is not yet fully answered.
+
 **The historical program cannot be used as a baseline for the automated one.**
 Different method, different unit, different day, no co-located pairs. A
 "typical" from `cqsj-cfgu` and a "typical" from `ct66-47at` are two different
@@ -1108,48 +1142,108 @@ never summed or joined numerically. That separation is already stated in
 
 ## Open questions for the maintainer
 
+> **How to read this section.** Questions 1 to 6 were open when this document
+> was written on 2026-09-28 and were settled by the code before the branch
+> merged. Each of them is recorded below with the file and line that answers it,
+> so the next reader checks the implementation instead of inheriting a question
+> that is already closed. That inversion happened repeatedly while the pipeline
+> was being built — the "open" text outlived the code by days — so **if an item
+> here disagrees with the code, the code is right and this section is stale.**
+> Question 7 is the only one still open.
+
+### Resolved
+
 1. **Willis Ave has two `counters_serial` values and one location.**
-   `resolve_counter_identity()` keys on `counters_serial`, so it will publish
-   two Willis Ave records, each carrying `sensorIds: [300028963, 300029648]`,
-   and double the counts a second time. Does the grouping key need to be
-   `(rounded lat, lon)` with the serial as metadata, or serial-with-coordinates
-   fallback the other way round? This needs a decision before the pipeline is
-   run over real data.
+   **Resolved: two-pass collapse, and the data confirms it.** The question
+   assumed `resolve_counter_identity()` keys on `counters_serial` alone and asked
+   whether the key should become `(rounded lat, lon)` with the serial as
+   metadata. It did not have to: the function runs a *second* pass after the
+   serial grouping, clustering on the set of `sensor_ids` and on rounded
+   coordinates, keeping the lexicographically greatest serial as canonical and
+   recording the others as aliases. See `resolve_counter_identity()` and
+   `_merge_serial_aliases()` in `scripts/walk/_common.py:663` and `:761`.
 
-2. **What publishes the third column spelling?** `may_22_p_m` and `may_23_p_m`
-   hold 112 real values each and `HISTORY_COLUMN_RE` drops both. Fix the regex,
-   or fix the source? Fixing the regex is the only option available; but the
-   `2026-09-28` docstring claiming 106 columns and two spellings also needs
-   correcting, and the count `37 surveys × 3` is worth asserting in the
-   validator so a fourth spelling is caught rather than dropped.
+   The published artifact settles it: `sensors.geojson` carries **four** features
+   for four physical counters, and Willis Ave appears once carrying both
+   `300028963` and `300029648`. The doubling the question predicted is not in
+   the data.
 
-3. **Is the "Time is captured in EST time zone" description wrong, or is the
-   data wrong?** The spring-forward hole says the data is New York civil time.
-   Fourteen consecutive years of a missing 02:00 hour is not a coincidence. But
-   `to_nyc_wall_clock()` is load-bearing for display and for `staleness_for()`,
-   and inverting it changes every summer timestamp by one hour. Worth an ADR
-   on its own — it is a semantic change to how a source column is read, which
-   is exactly the kind of thing [ADR 0001](adr/0001-freeze-the-location-schema.md)
-   exists to govern.
+2. **What publishes the third column spelling?**
+   **Resolved: the regex, and the count is asserted.** `HISTORY_COLUMN_RE` is
+   `^(may|sept|oct|june)_?(\d{2})_(am|md|p?_?m)$` (`scripts/walk/_common.py:994`)
+   and canonicalises `p_m` to the same `pm` period, because it is the same
+   measurement — DOT's own column label reads "May22_pM". The build reports
+   `consumedCountColumns: 111` and `unhandledCountColumns: 0`, and the
+   106-columns-and-two-spellings docstring is corrected in place.
+
+   The suggestion to assert the count so a *fourth* spelling is caught rather
+   than dropped was also taken, but by a different mechanism than "37 surveys ×
+   3": `COUNT_COLUMN_SHAPE_RE` is a deliberately broader shape-detector used as
+   a schema-drift check, so a new spelling is caught by not matching any
+   understood pattern. A parser that grew to accept every spelling that has ever
+   occurred would not be evidence that the next one is handled; that regex is.
+   See `scripts/walk/history/transform.py:207`.
+
+3. **Is the "Time is captured in EST time zone" description wrong?**
+   **Resolved: the description is wrong; the data is New York civil time.**
+   `parse_source_timestamp()` resolves in `America/New_York` via a ZoneInfo, not
+   at a fixed `-05:00`, so a July timestamp is `-04:00`
+   (`scripts/walk/_common.py:488`). The fourteen-year missing 02:00 hour is the
+   evidence, and the code says so.
+
+   The separate ADR the question asked for is not needed. Inverting the
+   interpretation is not a live choice: the source publishes civil time, so
+   reading it as a fixed EST offset would be the error. ADR 0006 records the
+   reading-timestamps-as-civil-time decision among its consequences.
 
 4. **Which of the two 01:00 hours survives on the first Sunday in November?**
-   Undeterminable from the published data. Either document the loss or ask DOT.
-   It is one hour a year and it should not be silently absorbed.
+   **Resolved by choosing, and documenting, the first.** The ambiguity is real
+   and the source offers no disambiguating column, so it cannot be recovered —
+   the question's own conclusion was right about that. The decision is to take
+   `fold=0` (the first occurrence, still on daylight time) and make it
+   deterministic rather than incidental: `FALLBACK_ASSUMED_FOLD = 0`
+   (`scripts/walk/_common.py:477`). The alternative — refusing to parse real data
+   — is worse, and the constant is named for the assumption it encodes so the
+   loss is visible rather than silently absorbed.
 
 5. **Should a counter that reports zeros for 45 days publish a label at all?**
-   Concrete Plant Park is doing it today. The options are `unavailable` (the
-   existing bucket), a new `faulted` state, or excluding the counter from
-   `sensors.geojson` entirely. All three are defensible; the current behaviour
-   is not, because it is not a choice anyone made.
+   **Resolved: yes, and a distinct one.** A new `faulted` staleness state,
+   recorded in
+   [ADR 0007](adr/0007-fault-a-counter-publishing-zeroes-is-not-fresh.md). The
+   other two options in the question were both rejected with reasons: reusing
+   `unavailable` would put a claim about the counter on an axis that describes
+   the street, and dropping the counter from `sensors.geojson` hides the fact
+   that it exists and is broken.
+
+   The motivation was stronger than the question recorded. Because `active` is
+   derived from `staleness`, the pre-gate behaviour published
+   `staleness: "fresh"`, `active: true`, `activity: "quiet"`, `count: 0` — a dead
+   counter drawn as a live, empty park. Every field true, the sentence they
+   formed a lie.
 
 6. **What is the fault gate's threshold, and what is its false-positive rate?**
-   A run of consecutive all-zero days and a trailing `|in−out|/(in+out)` ratio
-   both separate cleanly on the data measured here, but neither has been tuned
-   against a case where a counter was genuinely busy. Needs a deliberate
-   choice and a recorded measurement, not a constant picked in isolation.
+   **Resolved for the all-zero-run detector, on a measured separation.** Over the
+   57-day window, Concrete Plant Park's longest run of days with no nonzero
+   reading anywhere in them is **45**; Emmons Ave's — the one working counter —
+   is **1**. `FAULT_ZERO_DAYS = 7` sits an order of magnitude from both, and is
+   set on the healthy counter's noise floor rather than the failed one, because a
+   false positive costs a *working* counter its label while a miss degrades to
+   the `quiet` label that shipped before. Both ends are pinned by tests, and so
+   is the "never faulted" direction over a 50-day busy window.
+
+   The `|in−out|/(in+out)` half is **still not implemented, deliberately.** There
+   is no case of a lopsided split in the committed snapshot, so any constant
+   would be chosen without a measured false-positive rate — an untuned constant
+   that looks tuned, which is the same error as `MIN_SAMPLES` at 4. ADR 0007
+   records the reasoning so it is not re-proposed as a small addition.
+
+### Open
 
 7. **Is there a fifth program?** DOT publishes more pedestrian data than these
    three datasets. Whether any of it has broader coverage is worth one hour of
    searching before the direction is fixed for good — the historical program
    proves DOT can count 114 locations when it chooses to, so "four counters" is
-   a fact about these two datasets and not necessarily about the city.
+   a fact about these two datasets and not necessarily about the city. Nothing
+   in the shipped pipeline depends on the answer, and answering it would not
+   change any published field, so it is worth doing on its own merits rather than
+   as a blocker.
