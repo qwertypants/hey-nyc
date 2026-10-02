@@ -32,6 +32,7 @@ import {
   declarationsFor,
   elementDeclarations,
   lengthsToPx,
+  palette,
   readBlocks,
   resolve,
   ruleAppliesTo,
@@ -77,6 +78,11 @@ const INTERACTIVE = [
   'eoy-legend__summary',
   'eoy-sheet__close',
   'eoy-segmented__option',
+  // The walk feature's own two, which were not in the list at all. Both are 32px or taller
+  // so the target-size audit above was already passing on them by luck rather than by
+  // coverage; adding them here is what makes the tap-treatment audit below see them too.
+  'wnyc-legend__summary',
+  'wnyc-sort__label',
 ] as const;
 
 describe('target size (WCAG 2.2 SC 2.5.8, AA)', () => {
@@ -296,7 +302,11 @@ describe('reflow (WCAG 2.2 SC 1.4.10, AA)', () => {
   it('the filter rail scrolls rather than wrapping, so the header cannot resize the map', () => {
     // A wrapping rail changes the header height, which resizes the map, and a map that
     // resizes when you pick a filter loses the place you were looking at.
-    const rail = declarationsFor('light', 'eoy-rail__scroll');
+    //
+    // The BASELINE rule, not `declarationsFor`: on a short viewport the rail's own scrolling
+    // is released so the header can scroll as one strip, and that release is a later rule
+    // with the same selector. This is about what the rail does at every other size.
+    const rail = baselineDeclarations('eoy-rail__scroll');
     expect(rail['overflow-x']).toBe('auto');
     expect(declarationsFor('light', 'eoy-rail__chips')['flex-wrap']).toBeUndefined();
   });
@@ -345,6 +355,35 @@ function px(value: string, where: string): number {
   return out;
 }
 
+/**
+ * The declarations of the rule whose selector is EXACTLY this class, first match wins.
+ *
+ * `declarationsFor` merges every rule that matches the class with the last one winning, and
+ * `readBlocks` does not record whether a rule it handed back was inside a media query: it
+ * flattens an at-rule by leaving the `@media` text on the FIRST rule inside it only, so every
+ * later rule in the same query comes back looking like a top-level rule. An override that is
+ * true only on a short viewport therefore arrives at `declarationsFor` as though it were the
+ * element's ordinary behaviour — which is how the short-viewport strip's release of the rail's
+ * `overflow-x` read as the rail's base value, and how the `mask-image: none` that goes with it
+ * read as "the rail no longer fades".
+ *
+ * Correct when the question is "what does this rule say", wrong when the question is "what is
+ * this element's baseline". Both users below want the baseline, and in each case the base rule
+ * is declared above the query that overrides it.
+ */
+function baselineDeclarations(className: string): Record<string, string> {
+  const block = readBlocks().find((b) => b.selector.trim() === `.${className}`);
+  const out: Record<string, string> = {};
+  for (const decl of (block?.body ?? '').split(';')) {
+    const colon = decl.indexOf(':');
+    if (colon < 0) continue;
+    const property = decl.slice(0, colon).trim();
+    const value = decl.slice(colon + 1).trim();
+    if (property !== '' && value !== '') out[property] = value;
+  }
+  return out;
+}
+
 describe('focus not obscured (WCAG 2.2 SC 2.4.11, AA)', () => {
   /**
    * The one part of 2.4.11 this suite can read: the axis the filter rail scrolls on.
@@ -357,7 +396,7 @@ describe('focus not obscured (WCAG 2.2 SC 2.4.11, AA)', () => {
    */
   it('a focused filter chip is scrolled clear of the fade the rail ends in', () => {
     const fade = /calc\(100%\s*-\s*([\d.]+rem)\)/.exec(
-      declarationsFor('light', 'eoy-rail__scroll')['mask-image'] ?? '',
+      baselineDeclarations('eoy-rail__scroll')['mask-image'] ?? '',
     )?.[1];
     if (fade === undefined) throw new Error('the rail no longer fades its right edge, so this check is stale');
     const fadePx = px(fade, 'the rail fade');
@@ -551,6 +590,58 @@ describe('wrapped text (readability rather than a criterion)', () => {
  */
 
 /**
+ * Every TypeScript source under `src/`, read once.
+ *
+ * Two checks in this file read the components rather than the stylesheet — one for the custom
+ * properties they set as inline styles, one for the elements a class is rendered on — and a
+ * second walker would be a second parser that could disagree with the first.
+ */
+function componentSources(): string[] {
+  const sources: string[] = [];
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(path);
+        continue;
+      }
+      if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+      sources.push(readFileSync(path, 'utf8'));
+    }
+  };
+  walk(resolvePath(process.cwd(), 'src'));
+  return sources;
+}
+
+/**
+ * The element tags a class is rendered on, read from the JSX rather than guessed.
+ *
+ * This exists because of one blind spot in a stylesheet-only audit: `touch-action:
+ * manipulation` is declared once for the whole app on the bare `button` selector, so asking
+ * "does `.eoy-row` declare it?" reads `no` for a `<button className="eoy-row">` that is in
+ * fact covered. The JSX is what tells those two apart — a class rendered on a `<button>` is
+ * covered by the global rule whatever its own rule says, and one rendered on a `div`, a
+ * `summary` or a `label` is covered by nothing at all.
+ *
+ * Deliberately a literal read of `className`, not a runtime render: a component that builds
+ * its class name out of an expression will not be found, and a class that cannot be found is
+ * a class this suite refuses to certify, which is the right way round for an audit.
+ */
+function tagsCarrying(className: string): Set<string> {
+  const tags = new Set<string>();
+  for (const source of componentSources()) {
+    for (const match of source.matchAll(/className=(?:"([^"]*)"|\{'([^']*)'\}|\{`([^`]*)`\})/g)) {
+      const list = (match[1] ?? match[2] ?? match[3] ?? '').split(/\s+/);
+      if (!list.includes(className)) continue;
+      const open = source.slice(0, match.index).lastIndexOf('<');
+      const tag = /^<([A-Za-z][\w-]*)/.exec(source.slice(open))?.[1];
+      if (tag !== undefined) tags.add(tag);
+    }
+  }
+  return tags;
+}
+
+/**
  * Custom property names set from TypeScript, as inline styles.
  *
  * `'--name': value` or `"--name": value`, which is how a computed custom property has to be
@@ -561,23 +652,14 @@ describe('wrapped text (readability rather than a criterion)', () => {
  */
 function inlineCustomProperties(): string[] {
   const names: string[] = [];
-  const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        walk(path);
-        continue;
-      }
-      if (!/\.(ts|tsx|css)$/.test(entry.name)) continue;
-      // A quoted `--name` in a TS or TSX file is a custom property: there is no other
-      // reading of it. The `as string` in `['--wnyc-swatch' as string]` is why this matches
-      // the name and not the whole key.
-      for (const match of readFileSync(path, 'utf8').matchAll(/['"`](--[\w-]+)['"`]/g)) {
-        names.push(match[1] as string);
-      }
+  for (const source of componentSources()) {
+    // A quoted `--name` in a TS or TSX file is a custom property: there is no other
+    // reading of it. The `as string` in `['--wnyc-swatch' as string]` is why this matches
+    // the name and not the whole key.
+    for (const match of source.matchAll(/['"`](--[\w-]+)['"`]/g)) {
+      names.push(match[1] as string);
     }
-  };
-  walk(resolvePath(process.cwd(), 'src'));
+  }
   return names;
 }
 describe('every custom property the stylesheet reads is one it defines', () => {
@@ -613,6 +695,428 @@ describe('every custom property the stylesheet reads is one it defines', () => {
     expect(read.size).toBeGreaterThan(30);
     for (const token of ['--eoy-header-height', '--eoy-space-4', '--eoy-tap']) {
       expect(read.has(token), `nothing reads ${token}, so the token audit may be hollow`).toBe(true);
+    }
+  });
+});
+
+/**
+ * The whole body of an at-rule block, with its braces matched.
+ *
+ * `CSS_NO_COMMENTS.slice(indexOf(query), indexOf('}', ...))` — the obvious way to read one —
+ * stops at the FIRST closing brace after the query, which for an at-rule that opens with
+ * `:root { … }` is the end of that nested block and not the end of the query. Every rule this
+ * suite wants to read about a query is after it, so that slice reads a `:root` and nothing
+ * else, and the assertions below pass on an empty block.
+ */
+function atRuleBlock(query: string): string {
+  const start = CSS_NO_COMMENTS.indexOf(query);
+  if (start < 0) return '';
+  let depth = 0;
+  for (let i = CSS_NO_COMMENTS.indexOf('{', start); i < CSS_NO_COMMENTS.length; i += 1) {
+    const char = CSS_NO_COMMENTS[i];
+    if (char === '{') depth += 1;
+    else if (char === '}' && (depth -= 1) === 0) return CSS_NO_COMMENTS.slice(start, i + 1);
+  }
+  return '';
+}
+
+/**
+ * Every `:root` rule in the stylesheet, with the media queries it sits inside.
+ *
+ * `readBlocks()` CANNOT be used for this. It flattens a nested block by leaving the at-rule
+ * text on the FIRST rule inside it, so `:root` directly after `@media (…) {` comes back with
+ * the at-rule on its selector (and is then dropped, because the selector starts with `@`) while
+ * every later rule in the same query comes back looking top-level. `palette()` reads the FIRST
+ * `:root` block only for the same reason, which is precisely the hole this audit is written to
+ * close: a query that RAISED a token would be invisible to every reader in
+ * `tests/helpers/stylesheet.ts` while being true in a browser.
+ *
+ * RECURSIVE DESCENT, not a flat scan with a cursor. A flat scan has a failure mode that is
+ * invisible from the test: after descending into a query and consuming its first inner block,
+ * the next `{` it finds belongs to the FOLLOWING block, and the text it reads as that block's
+ * head still carries the previous query's closing `}`. That head matches neither `@media` nor
+ * `:root`, so the scan skips the whole following block — and since the two queries that reduce
+ * `--eoy-bar-wrap` and `--eoy-extra-rows` sit either side of a `:root`, that is exactly the
+ * pair this audit exists to police. Setting `--eoy-extra-rows: 8rem` in the short-viewport
+ * query, where the base says 7rem, did not fail this test until the scan was replaced.
+ *
+ * Each call returns the index just past the block it consumed, so there is no cursor to leave
+ * in the wrong place and no `}` to skip by hand.
+ */
+function rootBlocks(): { context: string; body: string }[] {
+  const out: { context: string; body: string }[] = [];
+
+  /** The index just past the `}` that closes the `{` at `open`. */
+  const matchBrace = (from: number): number => {
+    let depth = 0;
+    for (let i = from; i < CSS_NO_COMMENTS.length; i += 1) {
+      const char = CSS_NO_COMMENTS[i];
+      if (char === '{') depth += 1;
+      else if (char === '}' && --depth === 0) return i + 1;
+    }
+    return CSS_NO_COMMENTS.length;
+  };
+
+  const visit = (from: number, to: number, context: string): void => {
+    let i = from;
+    while (i < to) {
+      const open = CSS_NO_COMMENTS.indexOf('{', i);
+      if (open < 0 || open >= to) return;
+      const head = CSS_NO_COMMENTS.slice(i, open).trim();
+      const after = matchBrace(open);
+      if (head.startsWith('@media')) {
+        // Descend: a `:root` inside a query is in force inside that query, and that is the
+        // only reason this function exists.
+        visit(open + 1, after - 1, context === '' ? head : `${context} ${head}`);
+      } else if (!head.startsWith('@') && head.split(',').some((c) => c.trim() === ':root')) {
+        out.push({ context, body: CSS_NO_COMMENTS.slice(open + 1, after - 1) });
+      }
+      // `@keyframes` and friends are skipped whole: their percentages are not selectors, and
+      // descending into them would find heads like `0%`.
+      i = after;
+    }
+  };
+
+  visit(0, CSS_NO_COMMENTS.length, '');
+  return out;
+}
+
+/**
+ * THE HEADER, ON A SCREEN THAT IS NOT TALL.
+ *
+ * The header is three stacked rows — the bar, the feature switcher, the filter rail — and
+ * every one of them has a `min-height`. On a 390 × 844 phone that is 28.7% of the screen,
+ * which is fine. On an 844 × 390 phone in landscape it was 50.8%: the map got 192px and the
+ * detail sheet got 194px, and both were measured, not estimated.
+ *
+ * The fix is a `max-height` query that turns the three rows into ONE horizontally-scrolling
+ * strip. That reuses an idiom this stylesheet already uses twice (`.eoy-modes` and
+ * `.eoy-rail__scroll` both scroll rather than wrap, precisely so the header cannot change
+ * height), and it is the only arrangement in which a 390px-tall screen has room for a map.
+ */
+describe('a phone in landscape is a short viewport, not a narrow one', () => {
+  const SHORT = '@media (max-height: 40rem)';
+
+  it('has a short-viewport query, because no width query can describe a landscape phone', () => {
+    // 844 × 390 is WIDE. Both existing queries are `max-width: 30rem` (a narrow phone) and
+    // `min-width: 45rem` (a desktop). Neither is true at 844 × 390, so a header that is
+    // sized only by width queries is sized for the wrong axis entirely.
+    expect(CSS_NO_COMMENTS).toContain(SHORT);
+  });
+
+  it('collapses the header to one horizontally-scrolling row', () => {
+    const block = atRuleBlock(SHORT);
+    expect(block, `${SHORT} is not in the stylesheet`).not.toBe('');
+    // The strip, not a wrap. A wrapped header changes height when a filter chip wraps, which
+    // resizes the map — the exact failure the two existing scrollers were written to avoid.
+    expect(block).toMatch(/overflow-x:\s*auto/);
+    expect(block).not.toMatch(/flex-wrap:\s*wrap/);
+  });
+
+  it('stops the rail and the switcher from becoming nested scrollers inside the strip', () => {
+    // Two horizontal scrollers stacked is a gesture trap: a touch that starts inside the
+    // inner one is consumed by it, and the visitor cannot reach the outer strip's content by
+    // swiping on the part of the screen they are looking at. The inner `overflow-x` has to
+    // be released in the same block that introduces the outer one.
+    const block = atRuleBlock(SHORT);
+    // BOTH inner scrollers, named. Asserting that `overflow-x: visible` appears *somewhere*
+    // in the block passes as soon as ONE of them is released, which is the half-fix that
+    // leaves the gesture trap in place on the rail — the larger of the two, and the one a
+    // thumb actually lands on.
+    for (const inner of ['eoy-modes', 'eoy-rail__scroll']) {
+      const released = new RegExp(
+        `\\.${inner}[^{}]*\\{[^{}]*overflow-x:\\s*visible`,
+      ).test(block);
+      expect(
+        released,
+        `.${inner} is still a horizontal scroller inside the strip, so a touch that starts on ` +
+          'it is consumed by it and the visitor cannot swipe the strip by dragging across it.',
+      ).toBe(true);
+    }
+  });
+
+  it('reports a header height that is an upper bound at every viewport', () => {
+    // `--eoy-header-height` is read by the detail sheet for its `max-height`. A token that
+    // UNDER-states the header slides the sheet up underneath it, which is how the sheet came
+    // to open over the filter rail on a 320px phone. An over-estimate costs the sheet a few
+    // px of height and the sheet scrolls, so the invariant is: the value declared in the
+    // FIRST `:root` block — the one every audit reads — is the WORST case, and the media
+    // queries below it may only ever REDUCE it.
+    //
+    // The real render, against the token, at three viewports:
+    //   390 × 844  real 223px   token 232px   (+9)
+    //   320 × 568  real 112px   token 120px   (+8)
+    //   844 × 390  real  68px   token 120px   (+52)
+    const values = palette('light');
+    const header = values['--eoy-header-height'];
+    expect(header, '--eoy-header-height is not declared in the first :root block').toBeDefined();
+
+    // All three terms, by name. A hand-written length would satisfy `lengthsToPx` and fail
+    // this, which is the point: the failure this guards is the one that happened, a token
+    // that quietly stopped being the sum of the rows it claims to describe.
+    for (const term of ['--eoy-bar-height', '--eoy-bar-wrap', '--eoy-extra-rows']) {
+      expect(header, `--eoy-header-height must be the sum of its rows, and omits ${term}`)
+        .toContain(`var(${term})`);
+    }
+
+    // And the arithmetic actually adds up, which catches a term that is summed twice or a
+    // `calc()` with a stray operator. `lengthsToPx` resolves the var() chain and sums.
+    const px = (name: string): number => {
+      const found = lengthsToPx('light', values[name] ?? '');
+      expect(found, `${name} is not a length the helper can measure`).not.toBeNull();
+      return found as number;
+    };
+    expect(px('--eoy-header-height')).toBeCloseTo(
+      px('--eoy-bar-height') + px('--eoy-bar-wrap') + px('--eoy-extra-rows'),
+      0,
+    );
+  });
+
+  it('has no media query that raises a token above its first-:root value', () => {
+    // The mirror of the test above, and the one that keeps the audits honest.
+    // `tests/helpers/stylesheet.ts` reads the FIRST `:root` block only (see `rootBlocks`
+    // above), so a query that RAISED a token would be invisible to every audit while being
+    // true in the browser — a second `:root` that contradicts the first is precisely the
+    // failure mode that helper was written to prevent. The walk-stylesheet comment above
+    // `tests/walk-stylesheet.test.ts` records finding exactly that.
+    //
+    // So: every `:root`-level override in the stylesheet must be a REDUCTION. The two that
+    // exist after this task are `--eoy-bar-wrap` (45rem query, 3.25rem → 0rem) and
+    // `--eoy-extra-rows` (40rem height query, 7rem → 0rem); the dark and enhanced-contrast
+    // blocks recolour tokens rather than resize them and are skipped by the length pattern.
+    const values = palette('light');
+    const raised: string[] = [];
+
+    for (const block of rootBlocks()) {
+      if (block.context === '') continue; // the first `:root` is the value everything is read against
+      for (const match of block.body.matchAll(/(--[\w-]+)\s*:\s*([\d.]+)rem\s*;/g)) {
+        const name = match[1] as string;
+        const override = Number.parseFloat(match[2] as string);
+        const base = values[name];
+        if (base === undefined) continue;
+        const basePx = lengthsToPx('light', base);
+        if (basePx === null) continue; // a calc(), or a colour: not a length override
+        const overridePx = override * 16;
+        if (overridePx > basePx) {
+          raised.push(`${name}: the first :root says ${base} but a query raises it to ${match[2]}rem`);
+        }
+      }
+    }
+
+    expect(
+      raised,
+      `these media queries raise a token above the first-:root value, which is the only value ` +
+        `any audit reads:\n  ${raised.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
+  it('keeps the bottom sheet clear of the header, because 82% of a short screen is under it', () => {
+    // Measured at 320 × 568: the sheet's top edge was y 102 and the header's bottom edge was
+    // y 242. The sheet covered the feature switcher and the whole filter rail — the two
+    // controls that change what the sheet is about. `min(82%, 36rem)` is a percentage of the
+    // viewport, and the viewport is not the header's friend.
+    //
+    // The BASE rule, matched exactly rather than through `declarationsFor`, which walks every
+    // block that mentions the class and would return the `@media (min-width: 45rem)` override
+    // further down the file — a rule that already reads `--eoy-header-height`, so the
+    // assertion would pass before anything changed. The narrow layout is the one with the bug
+    // and the base selector is the only place it lives.
+    const base = readBlocks().find((b) => b.selector.trim() === '.eoy-sheet');
+    expect(base, 'there is no bare `.eoy-sheet` rule outside a media query').toBeDefined();
+
+    const heights = (base?.body.match(/max-height\s*:/g) ?? []).length;
+    expect(heights, 'the clamp is missing or has lost its percentage fallback').toBe(2);
+    expect(base?.body).toContain('min(82%, 36rem)');
+    expect(base?.body).toContain('var(--eoy-header-height)');
+  });
+
+  it('leaves the wide layout’s own clamp alone, because its geometry is different', () => {
+    // The side panel sits BESIDE the map with the bottom bar under it, not over it, so it
+    // subtracts `--eoy-space-5` rather than `--eoy-space-3`. Two different numbers for two
+    // different geometries is correct; a shared one would be wrong in one of them.
+    const wide = /@media \(min-width: 45rem\)\s*\{[\s\S]*?\.eoy-sheet\s*\{([\s\S]*?)\}/.exec(
+      CSS_NO_COMMENTS,
+    );
+    expect(wide?.[1], 'the wide-layout sheet clamp is missing').toBeDefined();
+    expect(wide?.[1]).toContain('var(--eoy-header-height)');
+    expect(wide?.[1]).toContain('var(--eoy-space-5)');
+  });
+});
+
+describe('the map furniture at the bottom of the screen is stacked, not overlapping', () => {
+  /**
+   * Three things are anchored to the bottom edge of the map: the floating count bar, the
+   * MapLibre attribution, and the legend. Measured at 390 × 844 the bar sat at y 800→844 and
+   * the attribution at y 784→844 — 44px of a 60px attribution behind the bar, which put the
+   * NYC Open Data credit and the control that expands the attribution out of reach.
+   *
+   * A screenshot does not catch this, because the bar is opaque and the attribution is
+   * simply not drawn where the bar is. This is a declaration check for the same reason
+   * everything else in this file is: the ORDER is what has to hold, and the order is
+   * expressible in the stylesheet.
+   */
+  const STACKED = ['maplibregl-ctrl-bottom-right', 'eoy-legend', 'wnyc-legend'] as const;
+
+  it.each(STACKED)('%s declares a bottom offset that clears the floating bar', (className) => {
+    const bottom = declarationsFor('light', className)['bottom'];
+    expect(bottom, `${className} has no \`bottom\`, so it defaults to auto`).toBeDefined();
+    expect(bottom, `${className} must clear the bottom bar`).toContain('var(--eoy-tap)');
+    expect(bottom, `${className} must honour the home indicator`).toContain('var(--eoy-safe-bottom)');
+  });
+
+  it('gives the attribution its own height token, because it is a measured box', () => {
+    // 60px: two lines of `--eoy-text-xs` links at the 320px floor, which is the narrowest
+    // viewport the app supports and therefore the case that wraps to the most lines. A token
+    // rather than a literal, so the legend's offset moves with it if the credits ever change.
+    const value = palette('light')['--eoy-attrib-height'];
+    expect(value, '--eoy-attrib-height is not declared in the first :root block').toBeDefined();
+    expect(value).toMatch(/rem$/);
+  });
+
+  it('stacks them in order, rather than merely making the three numbers different', () => {
+    /*
+     * The two legends are deliberately the SAME offset, and this is not a contradiction of
+     * "none can cover another": they belong to two features that are never both on screen —
+     * `src/features/registry.ts` mounts one — so they cannot overlap each other, and two
+     * different numbers for them would only mean two hand-tuned numbers to keep in step. The
+     * pair that DID collide is the attribution and the legend, so that is the pair to order.
+     *
+     * Asserted by resolving the offsets rather than by comparing strings, because "different"
+     * is a weaker claim than "the legend is above the attribution": a legend could clear the
+     * bar and still sit under the credit. jsdom has no layout, so the numbers are all the
+     * stylesheet can promise — but the numbers are real ones.
+     */
+    const offset = (className: string): number => {
+      const declared = declarationsFor('light', className)['bottom'] ?? '';
+      const found = lengthsToPx('light', declared);
+      if (found === null) {
+        throw new Error(`.${className} declares a bottom of "${declared}", which is not a length this suite can measure`);
+      }
+      return found;
+    };
+
+    const attrib = offset('maplibregl-ctrl-bottom-right');
+    expect(offset('eoy-legend')).toBe(offset('wnyc-legend'));
+
+    for (const legend of ['eoy-legend', 'wnyc-legend'] as const) {
+      expect(offset(legend), `.${legend} must clear the attribution, which sits between it and the bar`)
+        .toBeGreaterThan(attrib);
+      const declared = declarationsFor('light', legend)['bottom'] ?? '';
+      expect(declared, `.${legend} does not account for the attribution's height`).toContain(
+        'var(--eoy-attrib-height)',
+      );
+    }
+
+    // ...and the attribution accounts for the BAR and nothing else. Accounting for itself is
+    // the mistake that doubles the gap and leaves the credit a whole row above the map.
+    const attribDeclaration = declarationsFor('light', 'maplibregl-ctrl-bottom-right')['bottom'] ?? '';
+    expect(attribDeclaration, 'the attribution must not account for itself').not.toContain(
+      'var(--eoy-attrib-height)',
+    );
+  });
+});
+
+describe('every tap target gets the tap treatment, not just the <button> ones', () => {
+  /**
+   * `touch-action: manipulation` removes the ~300ms double-tap-zoom delay. It is declared on
+   * the global `button` rule plus `.eoy-pill`, `.eoy-button` and `.eoy-chip` — four rules,
+   * three of which are classes. That covers every `<button>` in the app, and nothing else.
+   *
+   * Four interactive elements are not `<button>`s: the search result option (a `div` with
+   * `role="option"`, which the WAI-ARIA combobox pattern requires and which therefore cannot
+   * become a button without invalidating its own listbox), the two `<summary>` elements, and
+   * the walk sort control's `<label>`. All four were paying the full tap delay while looking
+   * exactly like controls that were not.
+   *
+   * The bar is "GETS the treatment", not "declares it on its own rule", and that is the whole
+   * subtlety: a stylesheet-only reading would demand `touch-action` on the ten classes that
+   * ARE `<button>`s and are already covered by the global rule — ten redundant declarations,
+   * and a test that fails on correct code. `tagsCarrying` is what tells the two apart.
+   */
+  it('the global `button` rule is what gives every button the treatment', () => {
+    // The per-class cases below pass a `<button>` through `tags.has('button')`, which is
+    // correct — a button needs no declaration of its own. But that exemption makes every one
+    // of them blind to the global rule being deleted, and it is the global rule doing the
+    // work. So it is asserted directly, once, here.
+    //
+    // Found by mutation: removing `touch-action: manipulation` from the `button` rule left all
+    // 78 tests green, because nothing in the suite claimed that rule existed.
+    const globalButton = readBlocks().find((b) => b.selector.trim() === 'button');
+    expect(globalButton, 'there is no bare `button` rule in the stylesheet').toBeDefined();
+    expect(
+      /(^|[;{\s])touch-action:\s*manipulation/.test(globalButton?.body ?? ''),
+      'the global `button` rule lost `touch-action: manipulation`, so every button in the app ' +
+        'pays the 300ms tap delay while every per-class test below still passes.',
+    ).toBe(true);
+  });
+
+  it.each(INTERACTIVE)('.%s gets touch-action: manipulation', (className) => {
+    // Resolve through the existing INHERITS map, so a modifier is measured against the base
+    // class that carries the declaration. `.eoy-button--ghost` sets only colours; its tap
+    // treatment is `.eoy-button`'s, and asserting it on the modifier would fail on correct
+    // code.
+    const base = INHERITS[className] ?? className;
+
+    // Two exemptions, both of them wrappers rather than targets. `.eoy-search__field` is a
+    // div the input sits inside and `.eoy-search__input` is the input; the control that is
+    // actually pressed is the form's submit button, `.eoy-search__submit`, which has it.
+    const NOT_A_TARGET = new Set(['eoy-search__field', 'eoy-search__input']);
+    if (NOT_A_TARGET.has(base)) return;
+
+    const rules = readBlocks().filter((b) => ruleAppliesTo(b.selector, base));
+    const declares = rules.some((b) => /(^|[;{\s])touch-action:\s*manipulation/.test(b.body));
+    const tags = tagsCarrying(base);
+
+    expect(
+      declares || tags.has('button'),
+      `.${base} is a tap target that is neither a <button> nor a rule that declares ` +
+        'touch-action: manipulation. Every other control in this app has it; this one is not a ' +
+        '<button>, so the global rule does not reach it. It is rendered on ' +
+        `<${[...tags].join('>, <') || 'nothing this suite could find in src/'}> in src/.`,
+    ).toBe(true);
+  });
+});
+
+describe('the list does not lay out 60 rows to show six', () => {
+  /**
+   * `DEFAULT_VISIBLE_LIMIT` is 60 and every one of them is mounted. Measured, each row is
+   * 98px at a 390px viewport and 116px at 320px, so the first paint is laying out 5 880px of
+   * content in a 602px box. On a mid-range phone that is the difference between a list that
+   * appears and one that does not.
+   *
+   * `content-visibility: auto` is the fix with no dependency and no JavaScript. It is NOT
+   * `content-visibility: hidden`, which would remove the rows from the accessibility tree
+   * and from find-in-page — `auto` keeps them in both and defers only their interior layout.
+   *
+   * The `auto` keyword in `contain-intrinsic-size` makes the browser remember each row's real
+   * size once it has been rendered, so the fallback length only has to be close; it is here
+   * so the scrollbar does not jump on the way down.
+   */
+  it('marks a row as skippable, with a remembered-size fallback', () => {
+    const row = declarationsFor('light', 'eoy-row');
+    expect(row['content-visibility']).toBe('auto');
+    expect(row['contain-intrinsic-size']).toMatch(/^auto\s/);
+  });
+
+  it('does not use the variant that would remove the rows from the a11y tree', () => {
+    // `content-visibility: hidden` keeps the box's height but removes its contents from the
+    // accessibility tree and from find-in-page. The list is the app's accessible alternative
+    // to the map, so that variant would take away the thing the list exists to be.
+    const row = declarationsFor('light', 'eoy-row');
+    expect(row['content-visibility']).not.toBe('hidden');
+  });
+
+  it('does not reintroduce a fixed height to make the fallback work', () => {
+    // 1.4.12 is about a fixed height on a text-bearing rule, and the obvious way to make a
+    // contain-intrinsic-size fallback exact is to write one. The existing audit in this file
+    // would catch it; this test names the trap so the next person does not walk into it
+    // while trying to be tidy.
+    const blocks = readBlocks().filter((b) => ruleAppliesTo(b.selector, 'eoy-row'));
+    for (const block of blocks) {
+      expect(
+        /(^|[;{\s])height\s*:\s*[\d.]+(px|rem)/.test(block.body),
+        `.eoy-row must size itself from its content, not from a length. Block: ${block.selector}`,
+      ).toBe(false);
     }
   });
 });

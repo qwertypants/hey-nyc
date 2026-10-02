@@ -157,18 +157,55 @@
   /* Honours the notch / home indicator on phones. */
   --eoy-safe-bottom: env(safe-area-inset-bottom, 0px);
 
+  /*
+   * The MapLibre attribution's own height, measured rather than guessed: 60px, which is two
+   * lines of `--eoy-text-xs` links at the 320px floor. Three boxes are anchored to the
+   * bottom of the map — the floating bar, this attribution, and the legend — and at 390 × 844
+   * the bar sat at y 800→844 while the attribution sat at y 784→844, so 44px of a 60px
+   * attribution was behind an opaque bar, taking the NYC Open Data credit and the control
+   * that expands it with it. A token is what lets the legend clear both without a second
+   * hand-tuned number to keep in step.
+   */
+  --eoy-attrib-height: 3.75rem;
+
   /* Large touch targets: 44px is the WCAG 2.5.5 AAA floor and the practical floor for a
      phone held one-handed while walking. 2.5.8 AA asks for 24px; nothing in this app is
      smaller than 32px even when it is a secondary control. */
   --eoy-tap: 44px;
   --eoy-tap-sm: 32px;
 
-  --eoy-bar-height: 3.75rem;
+  /*
+   * THE HEADER'S HEIGHT, AS AN UPPER BOUND.
+   *
+   * `--eoy-header-height` is read by the detail sheet for its `max-height` (`src/App.tsx`
+   * renders the sheet inside `.eoy-app`, so the percentage resolves against the viewport).
+   * That makes an UNDER-statement a real bug and an over-statement a harmless one: too small
+   * slides the sheet up underneath the header, and on a 320 × 568 phone it opened over the
+   * feature switcher and the whole filter rail; too large costs the sheet a few px of height,
+   * and the sheet scrolls.
+   *
+   * So every term here is the WORST case for its row, and the media queries further down may
+   * only ever REDUCE one. That is what makes the value in this first `:root` block — the one
+   * every audit reads, per `tests/helpers/stylesheet.ts` — true everywhere rather than true
+   * in one place.
+   *
+   *   bar    4.25rem  a 44px control plus 12px of padding above and below. This is the WIDE
+   *                    bar's height, applied at every width, because the extra 8px costs a
+   *                    phone 8px of map and saves a second definition of the same number.
+   *   wrap   3.25rem  the second line the bar takes below 30rem, when the wordmark and Near me
+   *                    share the first line and search takes the whole second. Zeroed above
+   *                    30rem by a `min-width` query, never a `max-width` one.
+   *   extra  3.5 × 2  the switcher row and the filter rail. Zeroed on a short viewport, where
+   *                    both sit BESIDE the bar in one scrolling strip instead of under it.
+   */
+  --eoy-bar-height: 4.25rem;
+  --eoy-bar-wrap: 3.25rem;
   --eoy-rail-height: 3.5rem;
   --eoy-modes-height: 3.5rem;
-  --eoy-header-height: calc(
-    var(--eoy-bar-height) + var(--eoy-modes-height) + var(--eoy-rail-height)
-  );
+  --eoy-extra-rows: calc(var(--eoy-modes-height) + var(--eoy-rail-height));
+  /* On one line deliberately: `lengthsToPx` folds a `calc()` with a single-line regex, and
+     `tests/layout.test.ts` has to be able to add this sum up term by term. */
+  --eoy-header-height: calc(var(--eoy-bar-height) + var(--eoy-bar-wrap) + var(--eoy-extra-rows));
 }
 
 /* ==========================================================================
@@ -499,16 +536,10 @@ button {
 }
 
 /*
- * THE HEADER'S HEIGHT, derived rather than guessed.
- *
- * `--eoy-header-height` is used to keep the wide-layout detail sheet below the header
- * rather than under it. It used to be a hand-written `3.25rem` that quietly stopped being
- * true the moment a second row was added, so it is now built from the three rows' own
- * minimums, and those rows are given those minimums. Change one and the sheet follows.
- *
- *   bar   3.75rem = a 2.75rem (44px) control + 0.5rem of padding top and bottom
- *   modes 3.5rem  = the same control + 0.75rem of padding beneath it
- *   rail  3.5rem  = the same control + 0.75rem of padding beneath it
+ * THE BAR'S HEIGHT comes from `--eoy-bar-height`, which the header-height token above sums
+ * with the other two rows. Change the token and this row, the detail sheet's max-height and
+ * the short-viewport strip all follow. Do not write a length here: the header height is a sum
+ * of row heights, and a row that is not in the sum is a row the sheet will slide under.
  */
 .eoy-header__bar {
   display: flex;
@@ -1148,6 +1179,14 @@ button {
   padding: var(--eoy-space-2) var(--eoy-space-3);
   border-radius: var(--eoy-radius);
   cursor: pointer;
+  /*
+   * A `div`, so the global `button` rule's `touch-action` does not reach it, and the combobox
+   * pattern means it cannot become a `<button>` — a button inside a `listbox` is invalid and
+   * the `role="option"` is what makes `aria-selected` honest. So the tap treatment is
+   * declared here, like it is on `.eoy-pill`.
+   */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .eoy-search__option:hover,
@@ -1292,6 +1331,21 @@ button {
   font: inherit;
   text-align: left;
   cursor: pointer;
+  /*
+   * 60 rows are mounted and 6 are on screen, so the first paint is laying out about 5 900px of
+   * content in a 600px box. `auto` defers the interior layout of the rows that are off
+   * screen and does it again as they come into view. This is NOT `hidden`: `hidden` would
+   * remove the row's text from the accessibility tree and from find-in-page, and this list is
+   * the app's accessible alternative to the map, so that would take away the thing the list
+   * exists to be.
+   *
+   * The `auto` keyword in the fallback makes the browser remember the real size once a row
+   * has been rendered, so the length is only what the scrollbar uses before then. It is
+   * 100px because the row measures 98px at 390px wide — deliberately not a `height`, which
+   * would be a fixed height on a text-bearing rule and a 1.4.12 failure.
+   */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 6.25rem;
   /* The focus ring is 3px plus a 2px offset, and the bottom bar floats over the foot of
      the list, so the last row needs this much room to show its own indicator. */
   scroll-margin-block: var(--eoy-space-4) 5rem;
@@ -1578,10 +1632,26 @@ button {
   box-shadow: 0 0 0 2px var(--eoy-swatch-edge);
 }
 
+/*
+ * MapLibre anchors the attribution to the bottom-right corner and we never moved it, so it
+ * grew UNDER the floating bar. `bottom` is all that is needed: the control is the only thing
+ * in that corner, and moving it up rather than hiding it is what keeps the ODbL credit for
+ * OpenStreetMap and our own NYC Open Data credit visible without a tap.
+ */
+.maplibregl-ctrl-bottom-right {
+  bottom: calc(var(--eoy-tap) + var(--eoy-safe-bottom) + var(--eoy-space-2));
+}
+
 .eoy-legend {
   position: absolute;
   left: var(--eoy-space-3);
-  bottom: calc(var(--eoy-tap) + var(--eoy-space-5) + var(--eoy-space-3));
+  /*
+   * Above the attribution, which is itself above the bar. The gap the legend used to keep
+   * from the bar is the attribution's height now, so nothing is lost and the map gives up
+   * 60px at the bottom edge — the same 60px it was already giving up to a credit that
+   * nothing could read.
+   */
+  bottom: calc(var(--eoy-tap) + var(--eoy-safe-bottom) + var(--eoy-space-2) + var(--eoy-attrib-height));
   z-index: 22;
   max-width: 15rem;
   padding: var(--eoy-space-2);
@@ -1600,6 +1670,12 @@ button {
   border-radius: var(--eoy-radius);
   font-weight: 700;
   cursor: pointer;
+  /*
+   * A `<summary>`, not a `<button>`, so the global rule does not reach it — and it pays the
+   * same 300ms delay as everything else while looking exactly like a control that does not.
+   */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .eoy-legend__list {
@@ -1835,7 +1911,24 @@ button {
   z-index: 35;
   display: flex;
   flex-direction: column;
+  /*
+   * The sheet never covers the header. `min(82%, 36rem)` was a percentage of the viewport,
+   * which is a number about the SCREEN and not about the sheet: at 320 × 568 it put the
+   * sheet's top edge at y 102 and the header's bottom edge at y 242, so opening a place hid
+   * the feature switcher and the entire filter rail behind it. A visitor who opened a place
+   * to check its licence type could not change borough without closing it again.
+   *
+   * The same `--eoy-header-height` the wide layout already reads, and the same argument: it is
+   * an upper bound, so this is at worst a few px shorter than the sheet could be. The sheet
+   * scrolls; the header does not move.
+   *
+   * The percentage stays, declared second. An engine that cannot parse a `calc()` containing
+   * a custom property discards this declaration and keeps the one above it, which is the
+   * arrangement `.eoy-search__panel` uses for `vh`/`dvh` and the reason the CSS_NO_COMMENTS
+   * audit can assert both are present.
+   */
   max-height: min(82%, 36rem);
+  max-height: calc(100% - var(--eoy-header-height) - var(--eoy-space-3));
   padding: var(--eoy-space-2) var(--eoy-space-4) var(--eoy-space-4);
   padding-bottom: calc(var(--eoy-space-4) + var(--eoy-safe-bottom));
   border-radius: var(--eoy-radius-xl) var(--eoy-radius-xl) 0 0;
@@ -2003,7 +2096,6 @@ button {
 
 @media (min-width: 45rem) {
   .eoy-header__bar {
-    min-height: 4.25rem;
     padding: var(--eoy-space-3) var(--eoy-space-4);
   }
 
@@ -2017,10 +2109,6 @@ button {
 
   .eoy-rail {
     padding: 0 var(--eoy-space-4) var(--eoy-space-3);
-  }
-
-  .eoy-legend {
-    bottom: calc(var(--eoy-tap) + var(--eoy-space-5) + var(--eoy-space-3));
   }
 
   /*
@@ -2074,6 +2162,89 @@ button {
   .eoy-search {
     order: 3;
     flex: 1 1 100%;
+  }
+}
+
+/*
+ * ABOVE 30rem THE BAR IS ONE LINE, so the wrap term is released. A `min-width` query and not
+ * a `max-width` one, deliberately: the base value in `:root` is the worst case and this
+ * reduces it, which is the direction that keeps every stylesheet audit reading a true number.
+ * 30.0625rem rather than 30rem so the two queries cannot both be true at 480px.
+ */
+@media (min-width: 30.0625rem) {
+  :root {
+    --eoy-bar-wrap: 0rem;
+  }
+}
+
+/*
+ * A SHORT VIEWPORT — a phone in landscape, or a phone with a split-screen app beside it.
+ *
+ * At 844 × 390 the three stacked rows were 198px of a 390px screen: the map got 192px and the
+ * detail sheet got 194px, both measured. A width query cannot fix this, because 844px is
+ * WIDE — `min-width: 45rem` is true here, so the desktop branch was the one that ran, and it
+ * is the one that stacks three rows.
+ *
+ * So the three rows become ONE horizontally-scrolling strip. This is the same decision
+ * `.eoy-modes` and `.eoy-rail__scroll` already make, for the same reason: they scroll rather
+ * than wrap so the header cannot change height, because a header that changes height resizes
+ * the map, and a map that resizes loses your place.
+ *
+ * `40rem` (640px) rather than `34rem` (544px) because 320 × 568 is a real viewport — the
+ * original iPhone SE, still in service — and it was measured at 42.6% header, the worst
+ * portrait case. A strip at 568px tall leaves the map 456px instead of 326px.
+ */
+@media (max-height: 40rem) {
+  :root {
+    --eoy-extra-rows: 0rem;
+  }
+
+  .eoy-header {
+    display: flex;
+    align-items: center;
+    gap: var(--eoy-space-2);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .eoy-header::-webkit-scrollbar {
+    display: none;
+  }
+
+  /*
+   * `flex: none` on each row, and the same reason `.eoy-modes__option` says `0 1 auto`:
+   * a flex item defaults to `min-width: auto` and so refuses to shrink below its content's
+   * min-content width. In a strip that would push the rail's chips off the right edge again,
+   * which is the bug the note at `.eoy-app__body` records having already been fixed once.
+   */
+  .eoy-header__bar,
+  .eoy-modes,
+  .eoy-rail {
+    flex: none;
+    min-height: var(--eoy-bar-height);
+  }
+
+  /*
+   * THE INNER SCROLLERS ARE RELEASED. Two horizontal scrollers stacked is a gesture trap: a
+   * touch that begins inside the inner one is consumed by it, so the visitor cannot swipe the
+   * strip by dragging across the filter chips — the largest thing on the screen. The strip is
+   * now the only scroller, and it scrolls all three rows together.
+   */
+  .eoy-modes,
+  .eoy-rail__scroll {
+    overflow-x: visible;
+  }
+
+  /*
+   * And the rail's fade goes with it. The mask is sized to the rail's own box, which with
+   * `overflow-x: visible` is now only as wide as its content — so it would fade the rail's
+   * last chip at the CONTENT's edge rather than at the viewport's, pointing the visitor at
+   * more chips that are not there. The strip's own right edge is the honest cue.
+   */
+  .eoy-rail__scroll {
+    -webkit-mask-image: none;
+    mask-image: none;
   }
 }
 
@@ -2228,7 +2399,12 @@ button {
 .wnyc-legend {
   position: absolute;
   left: var(--eoy-space-4);
-  bottom: var(--eoy-space-4);
+  /*
+   * The same offset as `.eoy-legend`, so the two features' legends are the same object to a
+   * reader. This one was at `--eoy-space-4`, which is directly UNDER the floating bar, so the
+   * walk legend was overlapping it too.
+   */
+  bottom: calc(var(--eoy-tap) + var(--eoy-safe-bottom) + var(--eoy-space-2) + var(--eoy-attrib-height));
   z-index: 2;
   max-width: min(20rem, calc(100% - 2 * var(--eoy-space-4)));
   padding: var(--eoy-space-2) var(--eoy-space-3);
@@ -2249,6 +2425,10 @@ button {
   font-weight: 700;
   cursor: pointer;
   list-style-position: inside;
+  /* As `.eoy-legend__summary`: a `<summary>` is a disclosure control, not a button, and pays
+     the same 300ms delay as everything else. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .wnyc-legend__list {
@@ -2393,6 +2573,13 @@ button {
   border-radius: var(--eoy-pill);
   cursor: pointer;
   min-height: var(--eoy-tap);
+  /*
+   * A `<label>` — a selection control, not a button — so the global rule does not reach it.
+   * This one is the largest control in the app paying the tap delay, which is the version of
+   * the bug that is hardest to believe is real.
+   */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .wnyc-sort__name {

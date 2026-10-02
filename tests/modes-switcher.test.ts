@@ -183,13 +183,22 @@ describe('the feature switcher is legible on the dark header', () => {
     // `--eoy-header-height` is read by the detail sheet's max-height, so the modes row has
     // to be one of its terms or the sheet grows past the top of the viewport — which is
     // exactly what happened, and no test caught it, because it only shows on a screen.
-    // The header height is a `calc()` of three row heights, one of which is the modes row.
+    // The header height is a `calc()` of row heights, one of which is the modes row.
     // If the modes row is dropped from that sum the detail sheet's max-height is short by a
     // whole row and the sheet's own title and close button open off the top of the screen —
     // which is what happened, and which no existing test could see.
+    //
+    // It is asserted through `--eoy-extra-rows` rather than straight out of
+    // `--eoy-header-height`, because the sum now has a term a media query CAN zero, and the
+    // claim that would be wrong — "the modes row is never reduced" — is false by design: on a
+    // short viewport the switcher sits BESIDE the bar and costs no height. What has to stay
+    // true is that the modes row is still one of the header height's terms.
     const modesHeight = declaredToken('eoy-modes-height');
     expect(modesHeight).toMatch(/rem$/);
-    expect(declaredToken('eoy-header-height')).toContain('var(--eoy-modes-height)');
+    // ...and the one term that a short-viewport query CAN zero is the two extra rows, never
+    // the modes row on its own — so a change that moves the switcher out of the sum is still
+    // a failure here.
+    expect(declaredToken('eoy-extra-rows')).toMatch(/var\(--eoy-modes-height\)/);
   });
 
   it('keeps every declaration the switcher depends on inside this stylesheet', () => {

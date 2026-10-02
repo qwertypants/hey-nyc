@@ -38,6 +38,28 @@
     />
     <meta property="og:image" content="./social-preview.png" />
 
+    <!--
+      DM Sans is self-hosted, so the browser has to discover it: parse this stylesheet, find
+      the @font-face, then start the fetch. That is one round trip after the CSS, on the
+      critical path of the first frame, on a phone. Preloading it starts the fetch in
+      parallel with the stylesheet instead.
+
+      The latin subset ONLY, and `crossorigin` is required rather than decorative: a font
+      fetched without CORS is a different request to the same URL, so omitting it fetches the
+      file twice and wastes exactly what the preload was added to save. The `@font-face`
+      `unicode-range` is what keeps latin-ext out of the latin download; preloading both
+      would undo that.
+
+      `tests/head.test.ts` asserts the href resolves to a file in public/fonts, so a preload
+      naming a font nobody serves fails here rather than 404ing in production.
+    -->
+    <link
+      rel="preload"
+      href="/fonts/dm-sans-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   </head>

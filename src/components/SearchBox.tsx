@@ -268,6 +268,11 @@ export function SearchBox({
             ref={inputRef}
             className="eoy-search__input"
             type="text"
+            // The Search/Go key, without the platform's own clear button — which
+            // `type="search"` would also bring, on top of `.eoy-search__clear`. The search
+            // is submit-only by design (Nominatim's usage policy forbids autocomplete), so on
+            // a phone this key is the only way to run it.
+            inputMode="search"
             value={query}
             placeholder="Search area or place…"
             autoComplete="off"
