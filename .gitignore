@@ -35,3 +35,6 @@ test-results/
 # docs/adr/ (see docs/decisions.md); the reasoning for a fix belongs in the commit and the
 # comment above the code it explains.
 docs/plans/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
