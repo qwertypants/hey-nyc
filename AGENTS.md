@@ -266,3 +266,34 @@ re-read whole files.
 After big code changes, refresh the graph with `graft build` (deterministic,
 no API key, $0).
 <!-- graft:end -->
+
+### What the graph actually holds here
+
+Everything between the `graft:` markers above is graft-owned — `graft init`
+rewrites it wholesale, so corrections belong out here, where they survive.
+
+This repo is indexed at the **symbol layer only**. `graft build --deep` has not
+been run here: it needs an LLM API key, which
+[ADR 0003](docs/adr/0003-keyless-basemap-three-runtime-deps.md) and the Never
+list above rule out. Read the block above accordingly:
+
+- A card is a **bare symbol list** — `name · kind · Lstart-Lend — signature`.
+  There is no prose `summary`, no `crux`, and no `covers:` list, because the
+  deep pass is what writes those. Don't go looking for them.
+- `graft ask "<q>" --source` inlines the **actual source** at each hit's span.
+  That excerpt is the thing to work from — it is not a generated summary, so
+  treat it as a pointer to the real code, not as an explanation of it.
+  `--full` widens it to whole definitions.
+- `graft skeleton`, `graft callers` and `graft grep` behave as described above
+  and need no such caveat.
+
+Two rough edges:
+
+- **Plain data `const`s are not symbols.** `DATA_ATTRIBUTION_HTML`, `EAT_LEGEND`
+  and the rest are invisible to `ask`, `callers` and `skeleton`. Use
+  `graft grep "<literal>"` for those.
+- **`graft ask` sometimes ranks a file-level node first**, and a file node
+  carries no line span. Prefer the hits tagged `[symbol]`.
+
+Building the prose layer is a new runtime dependency. Per
+[`decisions.md`](docs/decisions.md) that needs its own ADR first.
