@@ -1,0 +1,131 @@
+{
+  "pipeline": {
+    "missing_sold_date": 414536,
+    "missing_construction_reported": 402502,
+    "missing_vacant_6_30_or_date_sold": 399598,
+    "missing_expir_dt_of_most_recent_lease": 344951,
+    "missing_latitude": 6004,
+    "missing_longitude": 6004,
+    "missing_lat_long": 6004,
+    "vacant_6_30_or_date_sold_unknown": 399598,
+    "construction_reported_unknown": 402502,
+    "missing_unit": 370996,
+    "missing_property_number": 1159,
+    "missing_property_street": 1198,
+    "missing_community_board": 202,
+    "missing_bin": 1585,
+    "reported_geocoded_zip_disagreement": 3558,
+    "missing_nta": 902,
+    "missing_nbhd": 448,
+    "missing_zip_code": 3298,
+    "missing_council_district": 48,
+    "missing_census_tract": 621,
+    "invalid_nta": 12,
+    "missing_primary_business_activity": 7036,
+    "missing_postcode": 7,
+    "construction_reported_short_variant": 5580,
+    "missing_vacant_on_12_31": 4431,
+    "vacant_on_12_31_unknown": 4431,
+    "vacant_on_12_31_short_variant": 2320,
+    "repeated_identical_records_retained": 74904,
+    "coordinate_rounding_precision": 7
+  },
+  "pointExclusions": {
+    "missing_coordinates": 6004,
+    "zero_coordinates": 5923
+  },
+  "contentHash": "66e922f09fceb208097a71c20b1ae95013e9338e222744990fef60f24d7b2e62",
+  "retrievedAt": "2026-10-03T17:44:05.714091Z",
+  "sourceUpdatedAt": "2026-04-09T14:31:46Z",
+  "sourceRows": 414884,
+  "publishedVacantLocations": 44472,
+  "cohorts": [
+    {
+      "reportingYear": "2019 and 2020",
+      "sourceRows": 75250,
+      "vacant": 6940,
+      "nonVacant": 68310,
+      "unknown": 0,
+      "mappableRecords": 69418,
+      "publishedVacantLocations": 6165,
+      "unknownNtaRecords": 0,
+      "vacancyShareSupported": true
+    },
+    {
+      "reportingYear": "2020 and 2021",
+      "sourceRows": 75540,
+      "vacant": 8542,
+      "nonVacant": 66998,
+      "unknown": 0,
+      "mappableRecords": 69725,
+      "publishedVacantLocations": 7614,
+      "unknownNtaRecords": 95,
+      "vacancyShareSupported": true
+    },
+    {
+      "reportingYear": "2021 and 2022",
+      "sourceRows": 63456,
+      "vacant": 6613,
+      "nonVacant": 56843,
+      "unknown": 0,
+      "mappableRecords": 63323,
+      "publishedVacantLocations": 6573,
+      "unknownNtaRecords": 0,
+      "vacancyShareSupported": true
+    },
+    {
+      "reportingYear": "2022 and 2023",
+      "sourceRows": 64092,
+      "vacant": 6163,
+      "nonVacant": 57929,
+      "unknown": 0,
+      "mappableRecords": 64056,
+      "publishedVacantLocations": 6152,
+      "unknownNtaRecords": 316,
+      "vacancyShareSupported": true
+    },
+    {
+      "reportingYear": "2023",
+      "sourceRows": 65419,
+      "vacant": 8048,
+      "nonVacant": 57335,
+      "unknown": 36,
+      "mappableRecords": 65400,
+      "publishedVacantLocations": 8034,
+      "unknownNtaRecords": 0,
+      "vacancyShareSupported": true
+    },
+    {
+      "reportingYear": "2024",
+      "sourceRows": 66668,
+      "vacant": 7708,
+      "nonVacant": 56740,
+      "unknown": 2220,
+      "mappableRecords": 66584,
+      "publishedVacantLocations": 7652,
+      "unknownNtaRecords": 52,
+      "vacancyShareSupported": true
+    },
+    {
+      "reportingYear": "2025",
+      "sourceRows": 4459,
+      "vacant": 2284,
+      "nonVacant": 0,
+      "unknown": 2175,
+      "mappableRecords": 4451,
+      "publishedVacantLocations": 2282,
+      "unknownNtaRecords": 0,
+      "vacancyShareSupported": false
+    }
+  ],
+  "retiredBoundarySource": "q2z5-ai38 (HTTP 404; 2010 polygons unavailable)",
+  "boundaryCoordinatePrecision": 6,
+  "recordsWithoutBoundary": 214614,
+  "inspection": {
+    "sourceRows": 414884,
+    "pointExclusions": {
+      "missing_coordinates": 6004,
+      "zero_coordinates": 5923
+    }
+  }
+}
