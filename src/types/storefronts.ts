@@ -25,6 +25,11 @@ export interface StorefrontSource {
   url: string;
   updatedAt: string;
 }
+export interface StorefrontPeriodArtifacts {
+  reportingYear: string;
+  areasPath: string;
+  vacantPath: string;
+}
 export interface StorefrontMetadata {
   schemaVersion: 1;
   methodologyVersion: string;
@@ -32,6 +37,7 @@ export interface StorefrontMetadata {
   boundarySources: StorefrontSource[];
   retrievedAt: string;
   reportingYears: string[];
+  periodArtifacts: StorefrontPeriodArtifacts[];
   defaultReportingYear: '2024';
   sourceRows: number;
   publishedVacantLocations: number;
