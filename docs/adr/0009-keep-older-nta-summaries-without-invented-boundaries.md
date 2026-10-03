@@ -1,6 +1,6 @@
 # 0009. Keep older NTA summaries without invented boundaries
 
-**Status:** Accepted
+**Status:** Superseded by [0010](0010-load-storefront-reports-by-period.md)
 **Date:** 2026-10-03
 
 ## Context
