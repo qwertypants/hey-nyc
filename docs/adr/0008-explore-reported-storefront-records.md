@@ -1,6 +1,6 @@
 # 0008. Explore reported storefront records without claiming premises identity
 
-**Status:** Accepted
+**Status:** Superseded by [0009](0009-keep-older-nta-summaries-without-invented-boundaries.md)
 **Date:** 2026-10-03
 
 ## Context
