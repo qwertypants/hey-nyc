@@ -63,7 +63,7 @@ the report. No names are used as join keys.
 Four-character source NTA codes use vintage 2010; six-character codes use 2020.
 Only official 2020 DCP `9nt8-h7nd` boundaries are currently available. The retired
 2010 `q2z5-ai38` endpoint returns HTTP 404. Historical 2010 areas preserve source
-NTA/name/borough, have a null boundaryId and use the arithmetic mean of valid
+NTA/name/borough, have a null boundaryId and use the arithmetic mean (computed with math.fsum for stable cross-version output) of valid
 source report coordinates for label placement. This anchor is neither an official
 centroid nor a new boundary. Unknown codes have no invented geometry. 2020 labels
 use the bounds midpoint of their matched official polygons. Every boundary vertex

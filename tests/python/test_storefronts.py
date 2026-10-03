@@ -209,3 +209,15 @@ def test_typescript_python_published_property_parity():
 def test_missing_nta_diagnostic_counted_once():
     _,report=clean_rows([row(nta=None)])
     assert report['pipeline']['missing_nta']==1
+
+
+def test_historical_mean_anchor_stable_at_rounding_boundary():
+    # Builtin sum changed algorithm in Python 3.12; fsum keeps generated coordinates
+    # identical across supported interpreters when the mean is on a rounding boundary.
+    import math
+    source=[row(reporting_year='2019 and 2020',nta='QN60',longitude=str(lon))
+            for lon in [-73.9777821]*7+[-73.9777822]*7]
+    cleaned,_=clean_rows(source)
+    areas,_,_=aggregate(cleaned,bounds())
+    assert areas['areas'][0]['center'][0] == -73.9777822
+    assert round(math.fsum(p[0] for _,p in cleaned)/len(cleaned),7) == -73.9777822

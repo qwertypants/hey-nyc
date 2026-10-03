@@ -1,6 +1,7 @@
 """Vintage-matched geography, sparse record matrices and separate vacant points."""
 from collections import Counter, defaultdict
 import hashlib
+import math
 import re
 
 if __package__:
@@ -81,7 +82,7 @@ def aggregate(cleaned, boundaries):
     for group_key, area in groups.items():
         if area['ntaVintage'] == '2010' and label_coords[group_key]:
             coords = label_coords[group_key]
-            area['center'] = [round(sum(c[i] for c in coords) / len(coords), 7) for i in (0, 1)]
+            area['center'] = [round(math.fsum(c[i] for c in coords) / len(coords), 7) for i in (0, 1)]
         area['counts'] = [[s, c, n, m] for (s, c), (n, m) in sorted(area['counts'].items(), key=lambda x: (x[0][0], str(x[0][1])))]
         areas.append(area)
     for c in coverage.values(): c['vacancyShareSupported'] = c['nonVacant'] > 0
