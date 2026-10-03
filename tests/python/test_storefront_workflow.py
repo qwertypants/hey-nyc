@@ -278,7 +278,12 @@ class StorefrontWorkflowTests(unittest.TestCase):
         self.assertIn("refresh.py --force", workflow)
         self.assertIn("- cron: '23 12 * * 0'", workflow)
         self.assertIn("permissions:\n  contents: write", workflow)
-        self.assertNotIn("actions/cache", workflow)
+        self.assertIn("uses: actions/cache/restore@v4", workflow)
+        self.assertIn("uses: actions/cache/save@v4", workflow)
+        self.assertIn("path: data/cache/storefronts", workflow)
+        self.assertIn("restore-keys:", workflow)
+        self.assertIn("hashFiles('scripts/storefronts/*.py')", workflow)
+        self.assertIn("${{ github.run_id }}", workflow)
         self.assertNotIn("secrets.", workflow)
         self.assertIn(
             "git add -A -- public/data/storefronts data/processed/storefronts/report.json",

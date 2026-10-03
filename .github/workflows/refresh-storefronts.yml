@@ -38,6 +38,15 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Restore the storefront source cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/cache/storefronts
+          key: storefront-source-${{ runner.os }}-${{ hashFiles('scripts/storefronts/*.py') }}-${{ github.run_id }}
+          restore-keys: |
+            storefront-source-${{ runner.os }}-${{ hashFiles('scripts/storefronts/*.py') }}-
+            storefront-source-${{ runner.os }}-
+
       - name: Rebuild and validate storefront artifacts
         env:
           FORCE_REFRESH: ${{ inputs.force || false }}
@@ -49,6 +58,12 @@ jobs:
             python3 scripts/storefronts/refresh.py
           fi
           python3 scripts/storefronts/validate.py --strict
+
+      - name: Save the storefront source cache
+        uses: actions/cache/save@v4
+        with:
+          path: data/cache/storefronts
+          key: storefront-source-${{ runner.os }}-${{ hashFiles('scripts/storefronts/*.py') }}-${{ github.run_id }}
 
       - name: Detect material change
         id: detect
