@@ -57,20 +57,14 @@ jobs:
           python3 - <<'PY' | tee -a "${GITHUB_STEP_SUMMARY}"
           import json
           import os
+          import re
           import subprocess
           import sys
           from pathlib import Path
 
-          PUBLIC_ARTIFACTS = (
-              "public/data/storefronts/metadata.json",
-              "public/data/storefronts/areas.json",
-              "public/data/storefronts/vacant.geojson",
-              "public/data/storefronts/boundaries.geojson",
-          )
-          NON_MATERIAL = frozenset(
-              {"contentHash", "retrievedAt", "sourceUpdatedAt", "generatedAt", "updatedAt"}
-          )
-
+          PUBLIC_DIR = "public/data/storefronts"
+          METADATA = f"{PUBLIC_DIR}/metadata.json"
+          BOUNDARIES = f"{PUBLIC_DIR}/boundaries.geojson"
           def fail(message):
               print(f"::error::{message}")
               sys.exit(1)
@@ -86,15 +80,71 @@ jobs:
               except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                   fail(f"HEAD:{path} is not valid JSON: {exc}")
 
-          def material(value):
-              if isinstance(value, dict):
-                  return {
-                      key: material(item)
-                      for key, item in value.items()
-                      if key not in NON_MATERIAL
-                  }
-              if isinstance(value, list):
-                  return [material(item) for item in value]
+          def paths_in(metadata, label):
+              if not isinstance(metadata, dict):
+                  fail(f"{label} must be a JSON object")
+              manifest = metadata.get("periodArtifacts")
+              if not isinstance(manifest, list) or not manifest:
+                  fail(f"{label} has no periodArtifacts manifest")
+
+              artifacts = {METADATA, BOUNDARIES}
+              seen_years = set()
+              seen_paths = set()
+              for entry in manifest:
+                  if not isinstance(entry, dict):
+                      fail(f"{label} periodArtifacts entries must be objects")
+                  year = entry.get("reportingYear")
+                  if not isinstance(year, str) or not re.fullmatch(r"\d{4}(?: and \d{4})?", year):
+                      fail(f"{label} has invalid reportingYear {year!r}")
+                  if year in seen_years:
+                      fail(f"{label} repeats reportingYear {year!r}")
+                  seen_years.add(year)
+
+                  slug = year.replace(" ", "-")
+                  expected = (
+                      ("areas.json", "vacant.geojson")
+                      if year == "2024"
+                      else (f"periods/{slug}/areas.json", f"periods/{slug}/vacant.geojson")
+                  )
+                  for key, expected_path in zip(("areasPath", "vacantPath"), expected):
+                      path = entry.get(key)
+                      if (
+                          not isinstance(path, str)
+                          or not path
+                          or "\\" in path
+                          or ":" in path
+                          or path.startswith("/")
+                          or any(part in ("", ".", "..") for part in path.split("/"))
+                      ):
+                          fail(f"{label} has unsafe {key} {path!r}")
+                      if path != expected_path:
+                          fail(f"{label} {key} for {year!r} must be {expected_path!r}")
+                      if path in seen_paths:
+                          fail(f"{label} repeats artifact path {path!r}")
+                      seen_paths.add(path)
+                      artifacts.add(f"{PUBLIC_DIR}/{path}")
+
+              if "2024" not in seen_years:
+                  fail(f"{label} periodArtifacts is missing the default 2024 cohort")
+              return artifacts
+
+          def material(path, value):
+              if path == METADATA:
+                  value = dict(value)
+                  value.pop("contentHash", None)
+                  value.pop("retrievedAt", None)
+                  source = value.get("source")
+                  if isinstance(source, dict):
+                      value["source"] = dict(source)
+                      value["source"].pop("updatedAt", None)
+                  boundaries = value.get("boundarySources")
+                  if isinstance(boundaries, list):
+                      value["boundarySources"] = [
+                          {key: item for key, item in source.items() if key != "updatedAt"}
+                          if isinstance(source, dict)
+                          else source
+                          for source in boundaries
+                      ]
               return value
 
           def read_json(path):
@@ -103,22 +153,24 @@ jobs:
               except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
                   fail(f"cannot read validated artifact {path}: {exc}")
 
-          new_documents = {path: read_json(path) for path in PUBLIC_ARTIFACTS}
-          new_hash = new_documents[PUBLIC_ARTIFACTS[0]].get("contentHash")
+          new_metadata = read_json(METADATA)
+          new_hash = new_metadata.get("contentHash")
           if not isinstance(new_hash, str) or len(new_hash) != 64:
               fail("storefront metadata has no usable contentHash")
+          new_paths = paths_in(new_metadata, "published metadata")
+          new_documents = {path: read_json(path) for path in new_paths}
 
-          old_documents = {path: committed_json(path) for path in PUBLIC_ARTIFACTS}
-          old_hash = (
-              old_documents[PUBLIC_ARTIFACTS[0]].get("contentHash")
-              if old_documents[PUBLIC_ARTIFACTS[0]] is not None
-              else None
-          )
-          baseline_exists = all(document is not None for document in old_documents.values())
-          material_changed = not baseline_exists or any(
-              material(old_documents[path]) != material(new_documents[path])
-              for path in PUBLIC_ARTIFACTS
-          )
+          old_metadata = committed_json(METADATA)
+          old_hash = old_metadata.get("contentHash") if old_metadata is not None else None
+          old_paths = paths_in(old_metadata, "HEAD metadata") if old_metadata is not None else set()
+          material_changed = old_metadata is None or old_paths != new_paths
+          if old_metadata is not None:
+              for path in old_paths & new_paths:
+                  old_document = committed_json(path)
+                  if old_document is None:
+                      fail(f"HEAD is missing manifest artifact {path}")
+                  if material(path, old_document) != material(path, new_documents[path]):
+                      material_changed = True
           hash_changed = old_hash != new_hash
 
           if hash_changed != material_changed:
@@ -155,12 +207,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- \
-            public/data/storefronts/metadata.json \
-            public/data/storefronts/areas.json \
-            public/data/storefronts/vacant.geojson \
-            public/data/storefronts/boundaries.geojson \
-            data/processed/storefronts/report.json
+          git add -A -- public/data/storefronts data/processed/storefronts/report.json
           if git diff --cached --quiet; then
             echo "::error::material change detected but no storefront artifact is staged"
             exit 1

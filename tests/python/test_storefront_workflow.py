@@ -18,7 +18,6 @@ PUBLIC_PATHS = (
     "public/data/storefronts/boundaries.geojson",
 )
 REPORT_PATH = "data/processed/storefronts/report.json"
-PUBLISHED_PATHS = PUBLIC_PATHS + (REPORT_PATH,)
 
 
 def detector_source():
@@ -89,12 +88,37 @@ def sample_documents(content_hash="a" * 64):
         "source": {"updatedAt": "2026-10-03T00:00:00Z", "rows": 3},
         "boundarySources": [{"updatedAt": "2026-10-03T00:00:00Z"}],
         "recordCount": 1,
+        "periodArtifacts": [
+            {
+                "reportingYear": "2024",
+                "areasPath": "areas.json",
+                "vacantPath": "vacant.geojson",
+            },
+            {
+                "reportingYear": "2023",
+                "areasPath": "periods/2023/areas.json",
+                "vacantPath": "periods/2023/vacant.geojson",
+            },
+            {
+                "reportingYear": "2019 and 2020",
+                "areasPath": "periods/2019-and-2020/areas.json",
+                "vacantPath": "periods/2019-and-2020/vacant.geojson",
+            },
+        ],
     }
     return {
         PUBLIC_PATHS[0]: metadata,
         PUBLIC_PATHS[1]: {"areas": [{"code": "MN01", "count": 1}]},
         PUBLIC_PATHS[2]: {"features": []},
         PUBLIC_PATHS[3]: {"features": []},
+        "public/data/storefronts/periods/2023/areas.json": {
+            "areas": [{"code": "MN01", "count": 3}]
+        },
+        "public/data/storefronts/periods/2023/vacant.geojson": {"features": []},
+        "public/data/storefronts/periods/2019-and-2020/areas.json": {
+            "areas": [{"code": "MN01", "count": 4}]
+        },
+        "public/data/storefronts/periods/2019-and-2020/vacant.geojson": {"features": []},
         REPORT_PATH: {"generatedAt": "2026-10-03T00:00:00Z", "pointExclusions": {}},
     }
 
@@ -158,6 +182,91 @@ class StorefrontWorkflowTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("disagree", result.stdout)
 
+    def test_older_period_payload_change_is_detected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp_path = Path(directory)
+            root, changed_documents, _, output_path = run_detector(
+                tmp_path, sample_documents()
+            )
+            changed_documents[PUBLIC_PATHS[0]]["contentHash"] = "b" * 64
+            changed_documents[
+                "public/data/storefronts/periods/2019-and-2020/areas.json"
+            ]["areas"][0]["count"] = 5
+            seed_documents(root, changed_documents)
+            result = subprocess.run(
+                ["python3", "-c", detector_source()],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "GITHUB_OUTPUT": str(output_path),
+                    "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("changed=true", output_path.read_text(encoding="utf-8"))
+
+    def test_removed_period_is_detected_for_directory_staging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp_path = Path(directory)
+            root, changed_documents, _, output_path = run_detector(
+                tmp_path, sample_documents()
+            )
+            metadata = changed_documents[PUBLIC_PATHS[0]]
+            metadata["contentHash"] = "b" * 64
+            metadata["periodArtifacts"] = [
+                item for item in metadata["periodArtifacts"]
+                if item["reportingYear"] != "2019 and 2020"
+            ]
+            for suffix in ("areas.json", "vacant.geojson"):
+                path = root / "public/data/storefronts/periods/2019-and-2020" / suffix
+                path.unlink()
+            seed_documents(root, changed_documents)
+            result = subprocess.run(
+                ["python3", "-c", detector_source()],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "GITHUB_OUTPUT": str(output_path),
+                    "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("changed=true", output_path.read_text(encoding="utf-8"))
+
+    def test_unsafe_manifest_path_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp_path = Path(directory)
+            root, changed_documents, _, output_path = run_detector(
+                tmp_path, sample_documents()
+            )
+            changed_documents[PUBLIC_PATHS[0]]["periodArtifacts"][1][
+                "areasPath"
+            ] = "../../outside.json"
+            seed_documents(root, changed_documents)
+            result = subprocess.run(
+                ["python3", "-c", detector_source()],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "GITHUB_OUTPUT": str(output_path),
+                    "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("unsafe areasPath", result.stdout)
+
 
     def test_workflow_is_weekly_keyless_and_scoped_to_named_artifacts(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -171,9 +280,16 @@ class StorefrontWorkflowTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: write", workflow)
         self.assertNotIn("actions/cache", workflow)
         self.assertNotIn("secrets.", workflow)
-        self.assertIn("git add --", workflow)
-        for path in PUBLISHED_PATHS:
-            self.assertIn(path, workflow)
+        self.assertIn(
+            "git add -A -- public/data/storefronts data/processed/storefronts/report.json",
+            workflow,
+        )
+        self.assertIn('PUBLIC_DIR = "public/data/storefronts"', workflow)
+        self.assertIn('METADATA = f"{PUBLIC_DIR}/metadata.json"', workflow)
+        self.assertIn('BOUNDARIES = f"{PUBLIC_DIR}/boundaries.geojson"', workflow)
+        self.assertIn("periods/{slug}/areas.json", workflow)
+        self.assertIn("periods/{slug}/vacant.geojson", workflow)
+        self.assertIn(REPORT_PATH, workflow)
         self.assertIn("- refresh-storefronts", deploy)
         self.assertIn("data/cache/storefronts/", gitignore)
         self.assertIn("data/raw/storefronts/", gitignore)
