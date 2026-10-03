@@ -72,8 +72,7 @@ def clean_rows(rows):
         nta = text(row, 'nta')
         coords, reason = coordinates(row)
         if reason: exclusions[reason] += 1
-        if nta is None: counters['missing_nta'] += 1
-        elif vintage(nta) is None: counters['invalid_nta'] += 1
+        if nta is not None and vintage(nta) is None: counters['invalid_nta'] += 1
         if row.get('borough_block_lot') != row.get('bbl'): counters['reported_geocoded_bbl_disagreement'] += 1
         if row.get('zip_code') != row.get('postcode'): counters['reported_geocoded_zip_disagreement'] += 1
         for field in ('vacant_on_12_31', 'vacant_6_30_or_date_sold', 'construction_reported'):

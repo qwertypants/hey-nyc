@@ -15,7 +15,7 @@
     "missing_community_board": 202,
     "missing_bin": 1585,
     "reported_geocoded_zip_disagreement": 3558,
-    "missing_nta": 902,
+    "missing_nta": 451,
     "missing_nbhd": 448,
     "missing_zip_code": 3298,
     "missing_council_district": 48,
@@ -35,7 +35,7 @@
     "zero_coordinates": 5923
   },
   "contentHash": "66e922f09fceb208097a71c20b1ae95013e9338e222744990fef60f24d7b2e62",
-  "retrievedAt": "2026-10-03T17:44:05.714091Z",
+  "retrievedAt": "2026-10-03T17:48:01.046550Z",
   "sourceUpdatedAt": "2026-04-09T14:31:46Z",
   "sourceRows": 414884,
   "publishedVacantLocations": 44472,
