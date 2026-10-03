@@ -3,6 +3,7 @@
 Explore counts **reported records**, never distinct premises or current businesses.
 See [ADR 0008](adr/0008-explore-reported-storefront-records.md),
 [ADR 0009](adr/0009-keep-older-nta-summaries-without-invented-boundaries.md),
+[ADR 0010](adr/0010-load-storefront-reports-by-period.md),
 [the source analysis](storefront-data-analysis.md) and
 [contributing rules](contributing.md).
 

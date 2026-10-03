@@ -54,12 +54,13 @@ npm run data:refresh
 **Check everything before you push:**
 
 ```bash
-npm run verify            # lint + test + build + data:validate --strict + pytest
+npm run verify            # lint + test + build + strict data validation + pytest
 ```
 
 `npm run verify` is what `ci.yml` runs on your pull request, in the same order:
 the app job's lint, test and build, then the data job's
-`validate_data.py --strict` and its Python tests. If it passes locally, CI will
+`validate_data.py --strict`, Storefront Pulse's strict artifact validation and
+the Python tests. If it passes locally, CI will
 pass. The two differences are cosmetic by comparison — `ci.yml` names
 `npm run typecheck` as its own step, which `npm run build` already does via
 `tsc --noEmit`, and it runs its two jobs in parallel rather than in sequence.
