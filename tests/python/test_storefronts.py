@@ -204,3 +204,8 @@ def test_typescript_python_published_property_parity():
     interface=source.split('export interface StorefrontProperties {',1)[1].split('\n}',1)[0]
     fields=set(re.findall(r'^  (\w+):',interface,re.MULTILINE))
     assert fields==set(artifacts()['vacant.geojson']['features'][0]['properties'])
+
+
+def test_missing_nta_diagnostic_counted_once():
+    _,report=clean_rows([row(nta=None)])
+    assert report['pipeline']['missing_nta']==1
