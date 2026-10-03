@@ -23,6 +23,11 @@ data/raw/**/*.json
 !data/raw/.gitkeep
 !**/.gitkeep
 
+# Storefront Pulse keeps its SQLite source cache locally; it is reproducible
+# and must never be published or committed.
+data/cache/storefronts/
+data/raw/storefronts/
+
 # Test/build scratch
 .vitest/
 test-results/

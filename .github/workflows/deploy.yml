@@ -4,7 +4,7 @@ name: deploy
 #
 #   1. push to main             - a human or a merged PR changed code.
 #   2. workflow_run            - a data refresh finished successfully.
-#                                refresh-data and refresh-walk-data BOTH push
+#                                all three refresh workflows push
 #                                with GITHUB_TOKEN, and a commit pushed by
 #                                GITHUB_TOKEN does NOT trigger the `push` event
 #                                above (GitHub suppresses workflow runs created
@@ -26,6 +26,7 @@ on:
     workflows:
       - refresh-data
       - refresh-walk-data
+      - refresh-storefronts
     types:
       - completed
   workflow_dispatch:

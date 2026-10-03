@@ -94,6 +94,11 @@ jobs:
           set -euo pipefail
           python3 scripts/validate_data.py --strict
 
+      - name: Validate Storefront Pulse artifacts
+        run: |
+          set -euo pipefail
+          python3 scripts/storefronts/validate.py --strict
+
       - name: Pipeline unit tests
         # tests/python works on inline fixtures and tmp directories and never
         # opens a socket - the one "URL" in test_fetch_data.py is

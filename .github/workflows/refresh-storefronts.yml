@@ -1,0 +1,176 @@
+name: refresh-storefronts
+
+# Rebuild Storefront Pulse weekly. The pipeline owns its metadata-based cache
+# gate, so a scheduled run with an unchanged source avoids the large fetch.
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Bypass the source-metadata cache and fetch the datasets again.'
+        type: boolean
+        default: false
+  schedule:
+    # Sunday at 12:23 UTC, away from the other refresh windows.
+    - cron: '23 12 * * 0'
+
+concurrency:
+  group: refresh-storefronts
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    name: Refresh storefront artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Rebuild and validate storefront artifacts
+        env:
+          FORCE_REFRESH: ${{ inputs.force || false }}
+        run: |
+          set -euo pipefail
+          if [ "${FORCE_REFRESH}" = "true" ]; then
+            python3 scripts/storefronts/refresh.py --force
+          else
+            python3 scripts/storefronts/refresh.py
+          fi
+          python3 scripts/storefronts/validate.py --strict
+
+      - name: Detect material change
+        id: detect
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee -a "${GITHUB_STEP_SUMMARY}"
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          PUBLIC_ARTIFACTS = (
+              "public/data/storefronts/metadata.json",
+              "public/data/storefronts/areas.json",
+              "public/data/storefronts/vacant.geojson",
+              "public/data/storefronts/boundaries.geojson",
+          )
+          NON_MATERIAL = frozenset(
+              {"contentHash", "retrievedAt", "sourceUpdatedAt", "generatedAt", "updatedAt"}
+          )
+
+          def fail(message):
+              print(f"::error::{message}")
+              sys.exit(1)
+
+          def committed_json(path):
+              result = subprocess.run(
+                  ["git", "show", f"HEAD:{path}"], capture_output=True, check=False
+              )
+              if result.returncode:
+                  return None
+              try:
+                  return json.loads(result.stdout.decode("utf-8"))
+              except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                  fail(f"HEAD:{path} is not valid JSON: {exc}")
+
+          def material(value):
+              if isinstance(value, dict):
+                  return {
+                      key: material(item)
+                      for key, item in value.items()
+                      if key not in NON_MATERIAL
+                  }
+              if isinstance(value, list):
+                  return [material(item) for item in value]
+              return value
+
+          def read_json(path):
+              try:
+                  return json.loads(Path(path).read_text(encoding="utf-8"))
+              except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                  fail(f"cannot read validated artifact {path}: {exc}")
+
+          new_documents = {path: read_json(path) for path in PUBLIC_ARTIFACTS}
+          new_hash = new_documents[PUBLIC_ARTIFACTS[0]].get("contentHash")
+          if not isinstance(new_hash, str) or len(new_hash) != 64:
+              fail("storefront metadata has no usable contentHash")
+
+          old_documents = {path: committed_json(path) for path in PUBLIC_ARTIFACTS}
+          old_hash = (
+              old_documents[PUBLIC_ARTIFACTS[0]].get("contentHash")
+              if old_documents[PUBLIC_ARTIFACTS[0]] is not None
+              else None
+          )
+          baseline_exists = all(document is not None for document in old_documents.values())
+          material_changed = not baseline_exists or any(
+              material(old_documents[path]) != material(new_documents[path])
+              for path in PUBLIC_ARTIFACTS
+          )
+          hash_changed = old_hash != new_hash
+
+          if hash_changed != material_changed:
+              fail(
+                  "storefront contentHash and timestamp-stripped artifact comparison "
+                  "disagree; refusing an ambiguous refresh commit"
+              )
+
+          changed = hash_changed
+          print(f"- old contentHash: `{old_hash or 'none'}`")
+          print(f"- new contentHash: `{new_hash}`")
+          print(f"- material artifacts changed: **{str(material_changed).lower()}**")
+          print("**Material change detected.**" if changed else "**No material change; timestamp churn will be discarded.**")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"changed={'true' if changed else 'false'}\n")
+              output.write(f"new_hash={new_hash}\n")
+              output.write(f"old_hash={old_hash or 'unknown'}\n")
+          PY
+
+      - name: Restore artifacts when nothing changed
+        if: steps.detect.outputs.changed == 'false'
+        run: |
+          set -euo pipefail
+          git restore --source=HEAD --worktree -- \
+            public/data/storefronts \
+            data/processed/storefronts
+
+      - name: Commit and push
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          OLD_HASH: ${{ steps.detect.outputs.old_hash }}
+          NEW_HASH: ${{ steps.detect.outputs.new_hash }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- \
+            public/data/storefronts/metadata.json \
+            public/data/storefronts/areas.json \
+            public/data/storefronts/vacant.geojson \
+            public/data/storefronts/boundaries.geojson \
+            data/processed/storefronts/report.json
+          if git diff --cached --quiet; then
+            echo "::error::material change detected but no storefront artifact is staged"
+            exit 1
+          fi
+
+          short="${NEW_HASH:0:7}"
+          git commit -m "data: refresh storefronts (hash ${short})" \
+            -m "contentHash: ${OLD_HASH} -> ${NEW_HASH}"
+          if ! git push origin HEAD:main; then
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main
+          fi
