@@ -298,3 +298,31 @@ class StorefrontWorkflowTests(unittest.TestCase):
         self.assertIn("- refresh-storefronts", deploy)
         self.assertIn("data/cache/storefronts/", gitignore)
         self.assertIn("data/raw/storefronts/", gitignore)
+
+    def test_deploy_checks_out_latest_main_only_for_refresh_runs(self):
+        deploy = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+        ref_line = next(
+            line for line in deploy.splitlines() if line.strip().startswith("ref:")
+        )
+        expression = ref_line.split(":", 1)[1].strip()
+        expected_expression = (
+            "$"
+            + "{{ github.event_name == 'workflow_run' && 'main' || github.sha }}"
+        )
+        self.assertEqual(expression, expected_expression)
+
+        def checkout_sha(event_name, github_sha, latest_main_sha):
+            ref = "main" if event_name == "workflow_run" else github_sha
+            return latest_main_sha if ref == "main" else ref
+
+        source_sha = "refresh-source-sha"
+        refresh_commit = "refresh-artifact-commit"
+        push_sha = "merged-code-commit"
+        self.assertEqual(
+            checkout_sha("workflow_run", source_sha, refresh_commit),
+            refresh_commit,
+        )
+        self.assertEqual(checkout_sha("push", push_sha, refresh_commit), push_sha)
+        self.assertEqual(
+            checkout_sha("workflow_dispatch", push_sha, refresh_commit), push_sha
+        )
