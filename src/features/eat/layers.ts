@@ -37,6 +37,7 @@
  * source goes last, and the interaction detach is called.
  */
 
+import { DATA_ATTRIBUTION_HTML } from '../../lib/attribution';
 import type { LocationCollection } from '../../types/location';
 import type { Filters } from '../../lib/filters';
 import type { MapLibreLike, MapRenderedFeature } from '../registry';
@@ -317,6 +318,7 @@ export function addEatLayers(
 ): EatLayers {
   if (map.getSource(SOURCE_ID) === undefined) {
     map.addSource(SOURCE_ID, {
+      attribution: DATA_ATTRIBUTION_HTML,
       type: 'geojson',
       data: collection,
       cluster: true,

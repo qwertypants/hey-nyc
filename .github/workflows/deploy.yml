@@ -4,7 +4,7 @@ name: deploy
 #
 #   1. push to main             - a human or a merged PR changed code.
 #   2. workflow_run            - a data refresh finished successfully.
-#                                refresh-data and refresh-walk-data BOTH push
+#                                all three refresh workflows push
 #                                with GITHUB_TOKEN, and a commit pushed by
 #                                GITHUB_TOKEN does NOT trigger the `push` event
 #                                above (GitHub suppresses workflow runs created
@@ -26,6 +26,7 @@ on:
     workflows:
       - refresh-data
       - refresh-walk-data
+      - refresh-storefronts
     types:
       - completed
   workflow_dispatch:
@@ -61,10 +62,11 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
         with:
-          # On workflow_run the default ref is the default branch, which may
-          # already have moved past the commit refresh-data validated. Pin the
-          # build to the exact SHA that workflow ran on.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # A refresh workflow pushes its artifacts to main before completing.
+          # Its head_sha is the source SHA from before that data commit, so a
+          # workflow_run build must check out the latest main to include it.
+          # Push and manual runs stay pinned to their triggering SHA.
+          ref: ${{ github.event_name == 'workflow_run' && 'main' || github.sha }}
           # persist-credentials is unnecessary here: this job never pushes.
 
       # A Pages site is a persistent REPOSITORY-LEVEL resource. It is not created

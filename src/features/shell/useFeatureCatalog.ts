@@ -31,6 +31,8 @@ import type { AnyFeature } from '../registry';
 import { useEatFeature } from '../eat/useEatFeature';
 import { EAT_IDENTITY } from '../eat/eatFeature';
 import { WALK_IDENTITY } from '../walk/legend';
+import { STOREFRONT_IDENTITY } from '../storefronts/feature';
+import { useStorefrontFeature } from '../storefronts/useStorefrontFeature';
 import { useWalkFeature } from '../walk/useWalkFeature';
 
 /**
@@ -41,7 +43,7 @@ import { useWalkFeature } from '../walk/useWalkFeature';
  * then add one entry here. Nothing under `src/features/shell/` and nothing in `App.tsx`
  * changes.
  */
-export const FEATURE_IDENTITIES: readonly FeatureIdentity[] = [EAT_IDENTITY, WALK_IDENTITY];
+export const FEATURE_IDENTITIES: readonly FeatureIdentity[] = [EAT_IDENTITY, WALK_IDENTITY, STOREFRONT_IDENTITY];
 
 /**
  * The one place a feature id chooses a feature object, written as an exhaustive `switch` so
@@ -49,12 +51,14 @@ export const FEATURE_IDENTITIES: readonly FeatureIdentity[] = [EAT_IDENTITY, WAL
  * through to the wrong feature. A ternary would have quietly defaulted a new feature to
  * walk, which is the exact failure a registry exists to prevent.
  */
-function selectFeature(id: FeatureId, eat: AnyFeature, walk: AnyFeature): AnyFeature {
+function selectFeature(id: FeatureId, eat: AnyFeature, walk: AnyFeature, storefronts: AnyFeature): AnyFeature {
   switch (id) {
     case 'eat':
       return eat;
     case 'walk':
       return walk;
+    case 'storefronts':
+      return storefronts;
   }
 }
 
@@ -66,11 +70,12 @@ export interface FeatureCatalogResult {
   readonly defaultId: FeatureId;
 }
 
-export function useFeatureCatalog(id: FeatureId): FeatureCatalogResult {
+export function useFeatureCatalog(id: FeatureId, requestedYear = '2024'): FeatureCatalogResult {
   const eat = useEatFeature();
   const walk = useWalkFeature(id === 'walk');
 
-  const feature = selectFeature(id, eat, walk);
+  const storefronts = useStorefrontFeature(id === 'storefronts', requestedYear);
+  const feature = selectFeature(id, eat, walk, storefronts);
 
   return useMemo(
     () => ({ feature, features: FEATURE_IDENTITIES, defaultId: DEFAULT_FEATURE_ID }),

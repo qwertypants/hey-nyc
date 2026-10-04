@@ -118,7 +118,14 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
   const [initialUrl] = useState(readInitialUrlState);
 
   const [featureId, setFeatureId] = useState<FeatureId>(initialUrl.mode);
-  const { feature, features } = useFeatureCatalog(featureId);
+  const [filterBag] = useState<Record<FeatureId, Filters>>(() => ({
+    eat: NO_FILTER,
+    walk: NO_FILTER,
+    storefronts: NO_FILTER,
+    ...{ [initialUrl.mode]: initialUrl.filters },
+  }));
+  const [requestedStorefrontYear, setRequestedStorefrontYear] = useState(initialUrl.filters.year ?? '2024');
+  const { feature, features } = useFeatureCatalog(featureId, requestedStorefrontYear);
 
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [revealed, setRevealed] = useState(DEFAULT_VISIBLE_LIMIT);
@@ -143,12 +150,12 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
     // One map, built once there is a feature to put on it. See `UseMapControllerOptions`.
     enabled: feature.data.status === 'ready',
     initialView: initialUrl.view,
-    initialFilters: initialUrl.filters,
+    initialFilters: filterBag[featureId],
     initialSelectedId: initialUrl.selectedId,
     create: createController,
   });
 
-  const filters = mapState.filters;
+  const filters = controller === null ? filterBag[featureId] : mapState.filters;
   const selectedId = mapState.selectedId;
   const copy = feature.copy;
   const nouns = feature.nouns;
@@ -186,17 +193,12 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
    * `?mode=walk&type=roadway` that is not a lie: the filters were named, walk has no
    * dimensions to apply them to, and Eat Outside is where they will take effect.
    */
-  const [filterBag] = useState<Record<FeatureId, Filters>>(() => ({
-    eat: NO_FILTER,
-    walk: NO_FILTER,
-    ...{ [initialUrl.mode]: initialUrl.filters },
-  }));
-
   const activeFilters = FilterSlot === null ? NO_FILTER : filters;
 
   const handleFilters = useCallback(
     (next: Filters) => {
       filterBag[featureId] = next;
+      setRequestedStorefrontYear(next.year ?? '2024');
       controller?.setFilters(next);
     },
     [controller, featureId, filterBag],
@@ -206,6 +208,7 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
     (next: FeatureId) => {
       if (next === featureId) return;
       filterBag[featureId] = filters;
+      setRequestedStorefrontYear(filterBag[next].year ?? '2024');
       controller?.setFilters(filterBag[next]);
       setFeatureId(next);
     },
@@ -220,7 +223,10 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
     (id: string) => {
       // The active feature is the only thing that can turn an id into a place, so it is the
       // one that refuses: an id from the other feature moves nothing and selects nothing.
-      controller?.focusOn(id, feature.positionOf(id));
+      const position = feature.positionOf(id);
+      if (position === null) {
+        if (feature.detail(id) !== null) controller?.setSelectedId(id);
+      } else controller?.focusOn(id, position);
     },
     [controller, feature],
   );
@@ -277,8 +283,8 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
   const userPosition = geo.status === 'ready' ? geo.position : null;
 
   const query = useMemo(
-    () => ({ filters, bounds: mapState.bounds, origin: userPosition, sort }),
-    [filters, mapState.bounds, userPosition, sort],
+    () => ({ filters, bounds: mapState.bounds, zoom: mapState.view.zoom, origin: userPosition, sort }),
+    [filters, mapState.bounds, mapState.view.zoom, userPosition, sort],
   );
 
   // The list predicate is the feature's, and it walks the whole dataset, so it is memoised
@@ -372,7 +378,7 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
    */
   const [filterNotice, setFilterNotice] = useState('');
   const lastFilterKey = useRef('');
-  const filterKey = `${featureId}|${filters.type}|${filters.borough}`;
+  const filterKey = `${featureId}|${filters.type}|${filters.borough}|${filters.status ?? ''}|${filters.year ?? ''}|${filters.construction ?? ''}`;
 
   useEffect(() => {
     if (listing.datasetCount === 0) {
@@ -494,7 +500,7 @@ export function App({ createController, urlDelayMs, geocode, geolocation }: AppP
             features={features}
             selected={featureId}
             onSelect={handleSelectFeature}
-            disabled={!ready}
+            disabled={!ready && featureId !== 'storefronts'}
           />
 
           {FilterSlot === null ? null : (

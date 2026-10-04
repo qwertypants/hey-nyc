@@ -28,6 +28,7 @@ account, no tracking.
 - [Project purpose](#project-purpose)
 - [Data sources](#data-sources)
 - [Where NYC Walks](#where-nyc-walks)
+- [Storefront Pulse](#storefront-pulse)
 - [Architecture](#architecture)
 - [Local development](#local-development)
 - [Data refresh](#data-refresh)
@@ -129,6 +130,25 @@ them, with the queries, are in
 [`docs/walk-data-analysis.md`](docs/walk-data-analysis.md), and the decision to
 lead with the screenline program is
 [ADR 0006](docs/adr/0006-lead-with-the-bi-annual-counts-not-the-live-feed.md).
+
+## Storefront Pulse
+
+Storefront Pulse maps DOF's December-reported vacant storefront records and
+summarizes vacant, reported non-vacant and unknown status by neighborhood. It
+defaults to the literal 2024 reporting label; changing periods loads that cohort
+on demand. The 414,884 source reports remain separate reports, including repeated
+rows. Counts do not establish distinct premises, current businesses or availability.
+
+Construction is reported true, false or unknown. Non-vacant records are aggregate
+counts; the source's NO includes owner-occupied and leased space. The incomplete
+2025 cohort has no explicit non-vacant population, so vacancy share is unavailable.
+Older 2010 neighborhood codes retain their summaries and coordinate-derived label
+anchors, but the retired official boundary endpoint means no polygons for those
+areas. History and business-category normalization remain deferred.
+
+See [the methodology and refresh commands](docs/storefronts.md),
+[source research](docs/storefront-data-analysis.md) and
+[ADR 0010](docs/adr/0010-load-storefront-reports-by-period.md).
 
 ## Where NYC Walks
 
@@ -339,7 +359,7 @@ how to point it somewhere else.
 | `npm run test:data` | `pytest tests/python` — 451 tests, no network. |
 | `npm run build` | Typecheck, then a production build into `dist/`. |
 | `npm run preview` | Serve the production build locally. |
-| `npm run verify` | lint + test + build + `data:validate --strict` + pytest, in that order. This is `ci.yml`. |
+| `npm run verify` | lint + test + build + strict Eat and Storefront artifact validation + pytest, in that order. This is `ci.yml`. |
 | `npm run data:*` | `fetch`, `inspect`, `clean`, `validate`, `refresh`. |
 
 The full runbook is in [`docs/data-pipeline.md`](docs/data-pipeline.md).
