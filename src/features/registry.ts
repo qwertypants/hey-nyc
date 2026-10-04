@@ -47,7 +47,7 @@ import type { Filters } from '../lib/filters';
 import type { GeocodeOutcome, GeocodeResult } from '../lib/geocode';
 
 /** A feature's stable identity. The slug is what appears in `?mode=`. */
-export type FeatureId = 'eat' | 'walk';
+export type FeatureId = 'eat' | 'walk' | 'storefronts';
 
 /** Which of a feature's two datasets is on the map. Walk has two; eat has one. */
 export type WalkLayerId = 'historical' | 'sensors';
@@ -175,6 +175,8 @@ export interface FeatureQuery<TFilters> {
    * after load is a lie about the map.
    */
   readonly bounds: MapBounds | null;
+  /** Current map scale for features with aggregate and record views. */
+  readonly zoom?: number;
   /** The visitor's own fix, and the only legal origin for a distance. */
   readonly origin: LatLngLike | null;
   /**

@@ -530,12 +530,12 @@ export function mountWalkLayers(
   options: WalkLayersOptions = {},
 ): WalkLayersHandle {
   if (map.getSource(WALK_SOURCE_IDS.historical) === undefined) {
-    map.addSource(WALK_SOURCE_IDS.historical, { type: 'geojson', data: index.historical, generateId: false });
+    map.addSource(WALK_SOURCE_IDS.historical, { type: 'geojson', attribution: 'Data from <a href="https://data.cityofnewyork.us/d/cqsj-cfgu" target="_blank" rel="noopener noreferrer">NYC DOT · Bi-Annual Pedestrian Counts</a>.', data: index.historical, generateId: false });
   } else {
     setSourceData(map, WALK_SOURCE_IDS.historical, index.historical);
   }
   if (map.getSource(WALK_SOURCE_IDS.sensors) === undefined) {
-    map.addSource(WALK_SOURCE_IDS.sensors, { type: 'geojson', data: activitySourceData(index), generateId: false });
+    map.addSource(WALK_SOURCE_IDS.sensors, { type: 'geojson', attribution: 'Data from <a href="https://data.cityofnewyork.us/d/ct66-47at" target="_blank" rel="noopener noreferrer">NYC DOT · Bicycle and Pedestrian Counts</a> and <a href="https://data.cityofnewyork.us/d/6up2-gnw8" target="_blank" rel="noopener noreferrer">count sensors</a>.', data: activitySourceData(index), generateId: false });
   } else {
     setSourceData(map, WALK_SOURCE_IDS.sensors, activitySourceData(index));
   }

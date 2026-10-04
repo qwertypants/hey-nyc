@@ -25,6 +25,10 @@ export type BoroughFilter = Borough | 'all';
 export interface Filters {
   readonly type: TypeFilter;
   readonly borough: BoroughFilter;
+  /** Storefront-only dimensions; omitted by Eat and Walk. */
+  readonly status?: 'vacant' | 'nonVacant' | 'both';
+  readonly year?: string;
+  readonly construction?: 'any' | 'reported' | 'notReported' | 'unknown';
 }
 
 export const NO_FILTER: Filters = { type: 'all', borough: 'all' };

@@ -396,9 +396,9 @@ describe('switching features', () => {
     expect(option(WALK_OPTION)).toHaveFocus();
     expect(app.controller().getState().selectedId).toBeNull();
 
-    // And they wrap, so a two-item group is not a dead end in either direction.
+    // The third option follows Walk; the complete three-mode cycle is covered by storefront-app.
     await user.keyboard('{ArrowRight}');
-    expect(option(EAT_OPTION)).toHaveAttribute('aria-checked', 'true');
+    expect(option(/Storefront Pulse/)).toHaveAttribute('aria-checked', 'true');
   });
 });
 

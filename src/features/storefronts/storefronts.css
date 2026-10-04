@@ -1,0 +1,24 @@
+.sf-controls { padding: 8px 16px 10px; border-top: 1px solid rgba(255,255,255,.16); color: #fff6ec; }
+.sf-controls__fields { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 3px; }
+.sf-controls label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; flex: 1 0 132px; }
+.sf-controls select { min-height: 36px; max-width: 100%; background: #fff6ec; color: #33261f; border: 1px solid #d5c5b6; border-radius: 5px; padding: 4px 7px; font: inherit; font-size: 12px; }
+.sf-controls__note, .sf-controls__warning { margin: 5px 0 0; font-size: 11px; line-height: 1.4; }
+.sf-controls__warning { color: #ffe0a4; }
+.sf-search__result { display: block; width: 100%; text-align: left; background: transparent; border: 0; padding: 10px; color: inherit; }
+.sf-search__result:focus-visible { outline: 2px solid currentColor; }
+.sf-search .eoy-search__panel { padding: 8px; }
+.eoy-modes:has([data-feature="storefronts"]) { overflow-x: auto; }
+.eoy-modes:has([data-feature="storefronts"]) .eoy-modes__option { min-inline-size: 0; flex: 1 0 100px; }
+@media (max-width: 600px) {
+  .sf-controls { padding-inline: 10px; }
+  .sf-controls__fields { gap: 7px; }
+  .sf-controls label { flex-basis: 125px; }
+  .eoy-modes:has([data-feature="storefronts"]) .eoy-modes__label { font-size: 11px; white-space: normal; }
+}
+
+.sf-controls a { color: #fff6ec; text-decoration: underline; text-underline-offset: 2px; }
+@media (max-width: 600px) {
+  .sf-controls__fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow: visible; }
+  .sf-controls label { min-inline-size: 0; }
+  .sf-controls select { inline-size: 100%; }
+}

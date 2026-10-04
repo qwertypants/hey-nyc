@@ -32,6 +32,7 @@
  * still `''`.
  */
 
+import { normalizeStorefrontFilters } from '../features/storefronts/filters';
 import { isBoroughFilter, isTypeFilter, NO_FILTER } from './filters';
 import type { BoroughFilter, Filters, TypeFilter } from './filters';
 import type { FeatureId } from '../features/registry';
@@ -61,7 +62,7 @@ export const DEFAULT_FEATURE_ID: FeatureId = 'eat';
  * anything else is not a feature — it is a typo or a hand-edited link, and it resolves to
  * the default rather than to a blank screen.
  */
-const FEATURE_IDS: readonly FeatureId[] = ['eat', 'walk'];
+const FEATURE_IDS: readonly FeatureId[] = ['eat', 'walk', 'storefronts'];
 
 export function isFeatureId(value: unknown): value is FeatureId {
   return typeof value === 'string' && (FEATURE_IDS as readonly string[]).includes(value);
@@ -117,6 +118,13 @@ const LOCATION_ID_PATTERN = /^eoy-[0-9a-f]{12}$/;
 export function isValidLocationId(value: unknown): value is string {
   return typeof value === 'string' && value.length <= MAX_PARAM_LENGTH &&
     LOCATION_ID_PATTERN.test(value);
+}
+
+export function isValidSelectionId(value: unknown, mode: FeatureId): value is string {
+  if (typeof value !== 'string' || value.length > MAX_PARAM_LENGTH) return false;
+  if (mode === 'storefronts') return /^(?:sf-[a-f0-9]{24}-[1-9][0-9]*|area-[a-f0-9]{24})$/.test(value);
+  if (mode === 'walk') return /^(?:wsh-[a-f0-9]{12}|wsk-[a-f0-9]{12})$/.test(value);
+  return isValidLocationId(value);
 }
 
 function roundTo(value: number, precision: number): number {
@@ -214,11 +222,11 @@ export function parseUrlState(search: string): UrlState {
     zoom: zoom === null ? DEFAULT_VIEW.zoom : clamp(zoom, MIN_ZOOM, MAX_ZOOM),
   });
 
+  const mode = readMode(read('mode'));
   return {
-    mode: readMode(read('mode')),
-    view,
-    filters: { type, borough },
-    selectedId: isValidLocationId(rawSelected) ? rawSelected : null,
+    mode, view,
+    filters: mode === 'storefronts' ? normalizeStorefrontFilters({ borough, status: read('status'), year: read('year'), construction: read('construction') }) : { type, borough },
+    selectedId: isValidSelectionId(rawSelected, mode) ? rawSelected : null,
   };
 }
 
@@ -233,7 +241,7 @@ export function serializeUrlState(state: UrlState): string {
     type: isTypeFilter(state.filters?.type) ? state.filters.type : 'all',
     borough: isBoroughFilter(state.filters?.borough) ? state.filters.borough : 'all',
   };
-  const selectedId = isValidLocationId(state.selectedId) ? state.selectedId : null;
+  const selectedId = isValidSelectionId(state.selectedId, state.mode) ? state.selectedId : null;
   // `state.mode` is a required member of the type and is still checked: this function is
   // documented as never throwing for ANY input, and the hostile-input case in
   // tests/url-state.test.ts hands it an object with no `mode` at all.
@@ -248,7 +256,12 @@ export function serializeUrlState(state: UrlState): string {
     params.set('lng', String(view.lng));
     params.set('z', String(view.zoom));
   }
-  if (filters.type !== 'all') params.set('type', filters.type);
+  if (mode === 'storefronts') {
+    const storefront = normalizeStorefrontFilters(state.filters);
+    if (storefront.status !== 'vacant') params.set('status', storefront.status);
+    if (storefront.year !== '2024') params.set('year', storefront.year);
+    if (storefront.construction !== 'any') params.set('construction', storefront.construction);
+  } else if (filters.type !== 'all') params.set('type', filters.type);
   if (filters.borough !== 'all') params.set('borough', filters.borough);
   if (selectedId !== null) params.set('sel', selectedId);
 

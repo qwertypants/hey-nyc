@@ -14,8 +14,8 @@
  * - OpenFreeMap `positron` by default; `VITE_BASEMAP_STYLE_URL` is the single seam for
  *   self-hosting (docs/basemap.md). The style is referenced by URL, never inlined, so the
  *   basemap's own attribution keeps flowing through automatically.
- * - `attributionControl` on, with a `customAttribution` string crediting NYC Open Data /
- *   NYC DOT, in addition to the basemap credit MapLibre reads from the TileJSON.
+ * - `attributionControl` on. Active feature sources supply data credits;
+ *   the basemap credit keeps flowing from its TileJSON.
  * - `maxZoom: 16`. The basemap TileJSON is maxzoom 14, so anything past that is overzoomed
  *   raster and looks worse than being unable to reach it.
  * - NO geolocation is requested here. `locateUser()` is a separate, explicit call.
@@ -30,7 +30,6 @@
 
 import maplibregl from 'maplibre-gl';
 import type { Map as MapLibreMap, MapOptions } from 'maplibre-gl';
-import { DATA_ATTRIBUTION_HTML } from '../lib/attribution';
 import { DEFAULT_VIEW, MAX_ZOOM, MIN_ZOOM } from '../lib/urlState';
 
 export const NYC_CENTER: [number, number] = [DEFAULT_VIEW.lng, DEFAULT_VIEW.lat];
@@ -44,11 +43,10 @@ export const DEFAULT_STYLE_URL = 'https://tiles.openfreemap.org/styles/positron'
 /**
  * `compact: false` on purpose: the docs for `AttributionControlOptions` warn that
  * collapsing attribution is only acceptable when the credits cannot fit, and we carry two
- * independent credits (OpenStreetMap via the basemap, NYC DOT from us).
+ * independent credits (OpenStreetMap via the basemap, data from active sources).
  */
 export const ATTRIBUTION_CONTROL_OPTIONS = {
   compact: false,
-  customAttribution: DATA_ATTRIBUTION_HTML,
 } as const;
 
 export function basemapStyleUrl(): string {
