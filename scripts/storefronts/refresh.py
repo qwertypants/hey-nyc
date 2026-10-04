@@ -45,26 +45,78 @@ def drift(previous, current):
             if c[field] and abs(new[year][field] - c[field]) > c[field] * .05:
                 raise ValueError(f'Drift: {year} {field} changed more than 5%')
 
-def publish(directory, artifacts):
+def write_report(path, report):
+    Path(path).write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + '\n')
+
+def report_consistent(path, report):
+    try: previous = json.loads(Path(path).read_text())
+    except (OSError, ValueError): return False
+    if not isinstance(previous, dict): return False
+    volatile = {'retrievedAt', 'sourceUpdatedAt'}
+    return ({k: v for k, v in previous.items() if k not in volatile}
+            == {k: v for k, v in report.items() if k not in volatile})
+
+def repair_report(path, report):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix='.storefront-report-', dir=path.parent)
+    os.close(fd)
+    temporary = Path(name)
+    try:
+        write_report(temporary, report)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+def publish(directory, artifacts, report_path=None, report=None):
     directory = Path(directory)
     directory.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix='.storefront-stage-', dir=directory.parent))
     backup = directory.parent / ('.' + directory.name + '-backup')
+    report_path = Path(report_path) if report_path is not None else None
+    internal_report = report_path == directory / 'report.json'
+    report_stage = report_backup = None
+    public_backed = public_replaced = report_backed = report_replaced = False
     try:
         for name, value in artifacts.items():
             (stage / name).parent.mkdir(parents=True, exist_ok=True)
             (stage / name).write_text(json.dumps(value, ensure_ascii=False, separators=(',', ':'), allow_nan=False) + '\n')
         validate(load(stage))
         if backup.exists(): raise ValueError(f'Recovery backup exists: {backup}')
-        had_previous = directory.exists()
-        if had_previous: os.replace(directory, backup)
-        try: os.replace(stage, directory)
-        except BaseException:
-            if had_previous: os.replace(backup, directory)
-            raise
-        if had_previous: shutil.rmtree(backup)
+        if report_path is not None:
+            if report is None: raise ValueError('Publication report missing')
+            if internal_report:
+                write_report(stage / 'report.json', report)
+            else:
+                report_path.parent.mkdir(parents=True, exist_ok=True)
+                report_backup = report_path.parent / ('.' + report_path.name + '-backup')
+                if report_backup.exists(): raise ValueError(f'Recovery backup exists: {report_backup}')
+                fd, name = tempfile.mkstemp(prefix='.storefront-report-', dir=report_path.parent)
+                os.close(fd)
+                report_stage = Path(name)
+                write_report(report_stage, report)
+        if directory.exists():
+            os.replace(directory, backup)
+            public_backed = True
+        os.replace(stage, directory)
+        public_replaced = True
+        if report_stage is not None:
+            if report_path.exists():
+                os.replace(report_path, report_backup)
+                report_backed = True
+            os.replace(report_stage, report_path)
+            report_replaced = True
+    except BaseException:
+        if report_replaced: report_path.unlink()
+        if report_backed: os.replace(report_backup, report_path)
+        if public_replaced: shutil.rmtree(directory)
+        if public_backed: os.replace(backup, directory)
+        raise
     finally:
         if stage.exists(): shutil.rmtree(stage)
+        if report_stage is not None: report_stage.unlink(missing_ok=True)
+    if public_backed: shutil.rmtree(backup)
+    if report_backed: report_backup.unlink()
 
 def refresh(output_dir=None, cache=None, force=False, offline=False, limit=None):
     if limit is not None: raise ValueError('--limit is inspection-only and cannot publish production artifacts')
@@ -101,13 +153,17 @@ def refresh(output_dir=None, cache=None, force=False, offline=False, limit=None)
         if output_dir.exists():
             previous = validate(load(output_dir))
             drift(previous, meta)
+        report_path = ROOT / 'data/processed/storefronts/report.json' if output_dir == ROOT / 'public/data/storefronts' else output_dir / 'report.json'
         if previous and previous['contentHash'] == meta['contentHash']:
-            result = 'unchanged'
+            if report_consistent(report_path, report):
+                result = 'unchanged'
+            else:
+                report['retrievedAt'] = previous['retrievedAt']
+                report['sourceUpdatedAt'] = previous['source']['updatedAt']
+                repair_report(report_path, report)
+                result = 'report-repaired'
         else:
-            publish(output_dir, artifacts)
-            report_path = ROOT / 'data/processed/storefronts/report.json' if output_dir == ROOT / 'public/data/storefronts' else output_dir / 'report.json'
-            report_path.parent.mkdir(parents=True, exist_ok=True)
-            report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+            publish(output_dir, artifacts, report_path, report)
             result = 'published'
         with db: db.execute('INSERT OR REPLACE INTO pipeline VALUES ("codeHash", ?)', (code_hash(),))
         return result, meta

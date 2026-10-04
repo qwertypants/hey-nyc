@@ -30,9 +30,15 @@ replaces a cache snapshot.
 `public/data/storefronts/metadata.json`, `areas.json`, `vacant.geojson` and
 `boundaries.geojson` are generated together. The report is
 `data/processed/storefronts/report.json`. Publication validates a sibling staging
-directory before replacing the old directory; a failed replacement restores the
-previous directory. An existing recovery backup stops publication. Materially
-unchanged runs preserve all published files, including retrieval timestamps.
+directory and stages the report before replacing the old directory. For the
+separate production report, both old outputs are backed up until both replacements
+succeed; a report write or replacement failure restores the previous public
+artifacts and report together. An existing recovery backup stops publication.
+Materially unchanged runs preserve public files and a consistent report, including
+retrieval timestamps. A missing, corrupt or stale report is repaired with an atomic
+temporary-file replacement even when the public material hash is unchanged. This
+repairs an inconsistent baseline left by an older pipeline without public-file
+churn; the repair retains the published metadata timestamps.
 
 ## Contract and interpretation
 

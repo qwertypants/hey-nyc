@@ -221,3 +221,79 @@ def test_historical_mean_anchor_stable_at_rounding_boundary():
     areas,_,_=aggregate(cleaned,bounds())
     assert areas['areas'][0]['center'][0] == -73.9777822
     assert round(math.fsum(p[0] for _,p in cleaned)/len(cleaned),7) == -73.9777822
+
+
+def install_refresh_source(tmp_path, monkeypatch):
+    from scripts.storefronts import refresh as module
+    monkeypatch.setattr(module,'ROOT',tmp_path)
+    source_row=row()
+    boundary_row={'nta2020':'QN0602','ntaname':'Forest Hills','boroname':'Queens','the_geom':bounds()['features'][0]['geometry']}
+    def cached_source(db,dataset,*args):
+        return {'id':dataset,'name':dataset,'rowsUpdatedAt':1}, [source_row] if dataset=='92iy-9c3n' else [boundary_row]
+    monkeypatch.setattr(module,'cached_read',cached_source)
+    return module,source_row,tmp_path/'public/data/storefronts',tmp_path/'data/processed/storefronts/report.json'
+
+
+def publication_snapshot(directory, report):
+    return ({p.relative_to(directory): (p.read_bytes(),p.stat().st_mtime_ns)
+             for p in directory.rglob('*') if p.is_file()},report.read_bytes(),report.stat().st_mtime_ns)
+
+
+@pytest.mark.parametrize('failure',['write','replace'])
+def test_report_publication_failure_restores_public_and_report(tmp_path,monkeypatch,failure):
+    module,source,directory,report=install_refresh_source(tmp_path,monkeypatch)
+    assert module.refresh(offline=True)[0]=='published'
+    original=publication_snapshot(directory,report)
+    source['property_street_address_or']='Changed report address'
+    with monkeypatch.context() as failing:
+        if failure=='write':
+            def fail_write(*args): raise OSError('injected report write failure')
+            failing.setattr(module,'write_report',fail_write)
+        else:
+            real_replace=module.os.replace
+            def fail_replace(src,dst):
+                if Path(src).name.startswith('.storefront-report-') and Path(dst)==report:
+                    raise OSError('injected report replace failure')
+                return real_replace(src,dst)
+            failing.setattr(module.os,'replace',fail_replace)
+        with pytest.raises(OSError,match='report'):module.refresh(offline=True)
+    assert publication_snapshot(directory,report)==original
+    assert not (directory.parent/'.storefronts-backup').exists()
+    assert not (report.parent/'.report.json-backup').exists()
+    assert module.refresh(offline=True)[0]=='published'
+    metadata=json.loads((directory/'metadata.json').read_text())
+    assert metadata['contentHash']==json.loads(report.read_text())['contentHash']
+    assert metadata['contentHash']!=json.loads(original[0][Path('metadata.json')][0])['contentHash']
+
+
+@pytest.mark.parametrize('damage',['missing','stale','corrupt'])
+def test_unchanged_refresh_repairs_inconsistent_report_without_public_churn(tmp_path,monkeypatch,damage):
+    module,_,directory,report=install_refresh_source(tmp_path,monkeypatch)
+    module.refresh(offline=True)
+    original=publication_snapshot(directory,report)
+    if damage=='missing':report.unlink()
+    elif damage=='corrupt':report.write_text('{not valid json')
+    else:
+        old=json.loads(report.read_text());old['contentHash']='0'*64;old['pipeline']['missing_nta']=999
+        report.write_text(json.dumps(old))
+    assert module.refresh(offline=True)[0]=='report-repaired'
+    repaired=publication_snapshot(directory,report)
+    assert repaired[0]==original[0]
+    assert repaired[1]==original[1]
+    assert module.refresh(offline=True)[0]=='unchanged'
+    assert publication_snapshot(directory,report)==repaired
+
+
+def test_report_repair_failure_retains_stale_report_and_can_retry(tmp_path,monkeypatch):
+    module,_,directory,report=install_refresh_source(tmp_path,monkeypatch)
+    module.refresh(offline=True);report.write_text('{stale report}')
+    original=publication_snapshot(directory,report)
+    real_replace=module.os.replace
+    with monkeypatch.context() as failing:
+        def fail_replace(src,dst):
+            if Path(dst)==report:raise OSError('injected repair failure')
+            return real_replace(src,dst)
+        failing.setattr(module.os,'replace',fail_replace)
+        with pytest.raises(OSError,match='repair'):module.refresh(offline=True)
+    assert publication_snapshot(directory,report)==original
+    assert module.refresh(offline=True)[0]=='report-repaired'
